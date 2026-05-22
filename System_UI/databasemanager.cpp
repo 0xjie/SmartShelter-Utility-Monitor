@@ -216,6 +216,58 @@ QList<SensorData> DatabaseManager::queryRecentData(int limit,
     return rows;
 }
 
+QList<SensorData> DatabaseManager::queryDataRange(const QDateTime& start,
+                                                  const QDateTime& end,
+                                                  QString* err) const {
+    QList<SensorData> rows;
+    if (!m_db.isOpen()) {
+        if (err) *err = QStringLiteral("Database is not open");
+        return rows;
+    }
+    if (!start.isValid() || !end.isValid()) {
+        if (err) *err = QStringLiteral("Invalid time range");
+        return rows;
+    }
+    if (start >= end) {
+        if (err) *err = QStringLiteral("Start time must be earlier than end time");
+        return rows;
+    }
+
+    QSqlQuery q(m_db);
+    q.prepare(
+        "SELECT ts,temperature,humidity,pm25,air_index,current_a,flow_l_min "
+        "FROM data "
+        "WHERE ts >= ? AND ts <= ? "
+        "ORDER BY ts ASC;");
+    q.addBindValue(start.toString(Qt::ISODateWithMs));
+    q.addBindValue(end.toString(Qt::ISODateWithMs));
+
+    if (!q.exec()) {
+        if (err) *err = q.lastError().text();
+        return rows;
+    }
+
+    while (q.next()) {
+        SensorData item;
+        item.ts = QDateTime::fromString(q.value(0).toString(), Qt::ISODateWithMs);
+        item.tempC = q.value(1).toDouble();
+        item.humiPercent = q.value(2).toDouble();
+        item.pm25UgM3 = q.value(3).toDouble();
+        item.airIndex = q.value(4).toDouble();
+        item.currentA = q.value(5).toDouble();
+        item.flowLMin = q.value(6).toDouble();
+        if (item.airIndex > 80.0) {
+            item.airQuality = QStringLiteral("差");
+        } else if (item.airIndex > 50.0) {
+            item.airQuality = QStringLiteral("良");
+        } else {
+            item.airQuality = QStringLiteral("优");
+        }
+        rows.append(item);
+    }
+    return rows;
+}
+
 bool DatabaseManager::queryAverageSince(const QDateTime& since,
                                         DataAverages* out,
                                         QString* err) const {

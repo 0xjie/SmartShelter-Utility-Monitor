@@ -3088,20 +3088,12 @@ void MainWindow::refreshHistoryPage() {
         return;
     }
 
-    // 查询数据点（从 rangeStart 开始）
+    // 查询完整时间范围内的数据点，避免被固定 LIMIT 截断。
     QString err;
-    QList<SensorData> points = m_db->queryRecentData(10000, rangeStart, &err);
+    QList<SensorData> points = m_db->queryDataRange(rangeStart, rangeEnd, &err);
     if (!err.isEmpty()) {
         qDebug() << "[DB] query recent data failed:" << err;
     }
-
-    // queryRecentData 返回 DESC（最新在前），折线图需要 ASC
-    std::reverse(points.begin(), points.end());
-
-    // 过滤掉超出结束时间的数据
-    points.erase(std::remove_if(points.begin(), points.end(),
-        [&](const SensorData& d) { return d.ts > rangeEnd; }),
-        points.end());
 
     // 计算哪些传感器被选中
     QList<int> selectedIndices;
@@ -3280,10 +3272,7 @@ void MainWindow::onExportHistoryClicked() {
     }
 
     QString rowsErr;
-    QList<SensorData> exportRows = m_db->queryRecentData(20000, rangeStart, &rowsErr);
-    exportRows.erase(std::remove_if(exportRows.begin(), exportRows.end(),
-        [&](const SensorData& d) { return d.ts > rangeEnd; }),
-        exportRows.end());
+    QList<SensorData> exportRows = m_db->queryDataRange(rangeStart, rangeEnd, &rowsErr);
     if (!rowsErr.isEmpty()) {
         customMessage(this, "导出失败", QString("读取历史数据失败：%1").arg(rowsErr), true);
         return;
@@ -3295,8 +3284,7 @@ void MainWindow::onExportHistoryClicked() {
 
     m_historyPoints.clear();
     m_historyPoints.reserve(exportRows.size());
-    for (int i = exportRows.size() - 1; i >= 0; --i) {
-        const SensorData& row = exportRows[i];
+    for (const SensorData& row : exportRows) {
         m_historyPoints.append({row.ts.toString("MM-dd HH:mm:ss"),
                                 row.tempC,
                                 row.humiPercent,
@@ -4456,4 +4444,3 @@ bool MainWindow::updateCurrentUserBasicInfo(const QString& newUsername,
     QSqlDatabase::removeDatabase(connectionName);
     return true;
 }
-

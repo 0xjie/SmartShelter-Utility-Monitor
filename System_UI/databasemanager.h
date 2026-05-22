@@ -46,6 +46,9 @@ public:
     QList<SensorData> queryRecentData(int limit,
                                       const QDateTime& since = QDateTime(),
                                       QString* err = nullptr) const;
+    QList<SensorData> queryDataRange(const QDateTime& start,
+                                     const QDateTime& end,
+                                     QString* err = nullptr) const;
     bool queryAverageSince(const QDateTime& since,
                            DataAverages* out,
                            QString* err = nullptr) const;
