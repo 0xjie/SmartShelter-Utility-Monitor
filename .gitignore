@@ -1,0 +1,55 @@
+# === Keil MDK Build Artifacts ===
+*.o
+*.d
+*.crf
+*.lnp
+*.axf
+*.hex
+*.bin
+*.elf
+*.lst
+*.map
+*.htm
+*.dep
+*.iex
+*.sct
+*.uvguix.*
+*.scvd
+JLinkLog.txt
+Objects/
+Listings/
+Output/
+*.build_log.htm
+
+# === IDE / Editor ===
+.vscode/
+.idea/
+.qtcreator/
+*.swp
+*.swo
+*~
+
+# === OS ===
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# === Database ===
+*.db
+*.sqlite
+*.sqlite3
+
+# === Build Dir ===
+build/
+
+# === Logs ===
+*.log
+
+# === Office temp files ===
+~$*.docx
+
+# === Claude ===
+.claude/
+
+# === Dependencies / Libs (keep only source) ===
+node_modules/

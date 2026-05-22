@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>安置点环境监测</title>
+  <link rel="stylesheet" href="css/dashboard.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="dashboard" id="app">
+    <!-- ===== 顶部状态栏 ===== -->
+    <header class="top-bar">
+      <div class="top-left">
+        <div class="sys-icon">🏠</div>
+        <div class="sys-info">
+          <div class="sys-name">灾后智慧水电管理与环境监测系统</div>
+          <div class="sys-site" id="siteTitle">一号营地监测站</div>
+        </div>
+      </div>
+      <div class="top-center">
+        <div class="sys-status" id="sysStatus">
+          <span class="status-icon" id="statusIcon">✓</span>
+          <span class="status-text" id="statusText">系统运行正常</span>
+        </div>
+        <div class="device-count" id="deviceCount">当前在线设备：6/6</div>
+      </div>
+      <div class="top-right">
+        <div class="sys-clock" id="clock">--:--:--</div>
+        <div class="data-status">
+          <span class="data-dot" id="connDot"></span>
+          <span class="data-label" id="connLabel">数据实时更新中</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===== 三栏主体 ===== -->
+    <div class="main-grid">
+
+      <!-- ===== 左栏：环境监测中心 ===== -->
+      <div class="col-left">
+        <div class="section-title">🌍 环境监测中心</div>
+
+        <!-- 2×2 指标卡 -->
+        <div class="metrics-grid">
+          <div class="mcard mcard--green" id="mcardTemp">
+            <div class="mcard-header">
+              <span class="mcard-icon">🌡️</span>
+              <span class="mcard-label">温度</span>
+            </div>
+            <div class="mcard-body">
+              <span class="mcard-value" id="mvalTemp">--</span>
+              <span class="mcard-unit">℃</span>
+            </div>
+            <div class="mcard-footer">
+              <span class="mcard-tag" id="mtagTemp">--</span>
+              <span class="mcard-range" id="mrangeTemp">预警≥32℃ 告警≥38℃</span>
+            </div>
+          </div>
+          <div class="mcard mcard--green" id="mcardHum">
+            <div class="mcard-header">
+              <span class="mcard-icon">💧</span>
+              <span class="mcard-label">湿度</span>
+            </div>
+            <div class="mcard-body">
+              <span class="mcard-value" id="mvalHum">--</span>
+              <span class="mcard-unit">%</span>
+            </div>
+            <div class="mcard-footer">
+              <span class="mcard-tag" id="mtagHum">--</span>
+              <span class="mcard-range" id="mrangeHum">预警≥70% 告警≥85%</span>
+            </div>
+          </div>
+          <div class="mcard mcard--green" id="mcardPm">
+            <div class="mcard-header">
+              <span class="mcard-icon">💨</span>
+              <span class="mcard-label">PM2.5</span>
+            </div>
+            <div class="mcard-body">
+              <span class="mcard-value" id="mvalPm">--</span>
+              <span class="mcard-unit">μg/m³</span>
+            </div>
+            <div class="mcard-footer">
+              <span class="mcard-tag" id="mtagPm">--</span>
+              <span class="mcard-range" id="mrangePm">预警≥75 告警≥150μg/m³</span>
+            </div>
+          </div>
+          <div class="mcard mcard--green" id="mcardAq">
+            <div class="mcard-header">
+              <span class="mcard-icon">🍃</span>
+              <span class="mcard-label">空气质量</span>
+            </div>
+            <div class="mcard-body">
+              <span class="mcard-value" id="mvalAq">--</span>
+              <span class="mcard-unit">ppm</span>
+            </div>
+            <div class="mcard-footer">
+              <span class="mcard-tag" id="mtagAq">--</span>
+              <span class="mcard-range" id="mrangeAq">预警≥100 告警≥200ppm</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 24 小时预测（手机天气 app 风格） -->
+        <div class="section-subtitle">📊 未来 24 小时环境预测</div>
+        <div class="forecast-wrap">
+          <div class="forecast-tip-carousel" id="forecastTipCarousel" aria-live="polite"></div>
+          <div class="forecast-scroll" id="forecastScroll">
+            <div class="forecast-svg-wrap" id="forecastSvgWrap">
+              <svg class="forecast-svg" id="forecastTempSvg" width="3000" height="152">
+                <defs id="forecastTempDefs"></defs>
+                <g id="forecastTempSegments"></g>
+                <g id="forecastTempLabels"></g>
+              </svg>
+            </div>
+            <div class="forecast-cols" id="forecastCols"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 中栏：智慧水电管理 ===== -->
+      <div class="col-center">
+        <div class="section-title">⚡ 智慧水电管理</div>
+
+        <!-- 电力监控 -->
+        <div class="res-card" id="resPower">
+          <div class="res-header">
+            <span class="res-icon">🔋</span>
+            <span class="res-name">电力系统监控</span>
+            <span class="res-badge" id="powerBadge">电力供应充足</span>
+          </div>
+          <div class="res-main">
+            <svg class="battery-svg" viewBox="0 0 100 200" id="batterySvg">
+              <defs>
+                <linearGradient id="batShellGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="rgba(255,255,255,0.08)"/>
+                  <stop offset="50%" stop-color="rgba(255,255,255,0.04)"/>
+                  <stop offset="100%" stop-color="rgba(255,255,255,0.02)"/>
+                </linearGradient>
+                <linearGradient id="batFillGrad" x1="0" y1="1" x2="0" y2="0">
+                  <stop offset="0%" stop-color="#059669"/>
+                  <stop offset="100%" stop-color="#34D399"/>
+                </linearGradient>
+              </defs>
+              <rect x="18" y="28" width="64" height="144" rx="14" fill="url(#batShellGrad)" stroke="rgba(255,255,255,0.22)" stroke-width="2"/>
+              <rect x="35" y="12" width="30" height="18" rx="5" fill="rgba(255,255,255,0.13)"/>
+              <rect x="37" y="12" width="26" height="4" rx="2" fill="rgba(255,255,255,0.08)"/>
+              <rect class="bat-fill" id="batFill" x="21" y="168" width="58" height="0" rx="10" fill="url(#batFillGrad)"/>
+              <g transform="translate(50,100)" opacity="0.18">
+                <path d="M-12 -18 L-3 -3 L-7 -3 L-1 18 L4 3 L-1 3 Z" fill="white"/>
+              </g>
+            </svg>
+            <div class="res-big">
+              <span class="res-big-val" id="batPct">--%</span>
+              <span class="res-big-label">剩余电量</span>
+            </div>
+          </div>
+          <div class="res-predict" id="powerPredict">预计剩余可用时间：约 -- 小时</div>
+          <div class="res-data">
+            <span>今日已用：<strong id="powerToday">--</strong></span>
+            <span>电力线路：<strong id="powerLineStatus">正常</strong></span>
+          </div>
+        </div>
+
+        <!-- 供水监控 -->
+        <div class="res-card" id="resWater">
+          <div class="res-header">
+            <span class="res-icon">💧</span>
+            <span class="res-name">供水系统监控</span>
+            <span class="res-badge" id="waterBadge">供水正常</span>
+          </div>
+          <div class="res-main">
+            <div class="tank-wrap">
+              <div class="tank-body">
+                <div class="tank-fill" id="tankFill" style="height:0%">
+                  <div class="tank-wave"></div>
+                </div>
+              </div>
+            </div>
+            <div class="res-big">
+              <span class="res-big-val" id="wtrPct">--%</span>
+              <span class="res-big-label">剩余水量</span>
+            </div>
+          </div>
+          <div class="res-predict" id="waterPredict">预计剩余可用时间：约 --</div>
+          <div class="res-data">
+            <span>今日已用：<strong id="waterToday">--</strong></span>
+            <span>水质状态：<strong id="waterQuality">达标</strong></span>
+          </div>
+        </div>
+
+        <!-- 水电消耗趋势 -->
+        <div class="trend-box">
+          <div class="trend-title">📈 过去 7 天水电消耗趋势</div>
+          <canvas id="chartTrend"></canvas>
+        </div>
+      </div>
+
+      <!-- ===== 右栏：报警预警中心 ===== -->
+      <div class="col-right">
+        <div class="section-title">🚨 报警预警中心</div>
+
+        <!-- 执行器状态 -->
+        <div class="actuator-card">
+          <div class="actuator-title">🔧 执行器状态</div>
+          <div class="actuator-list">
+            <div class="act-row" id="actuatorBuzzer">--</div>
+            <div class="act-row" id="actuatorFan">--</div>
+            <div class="act-row" id="actuatorServo">--</div>
+            <div class="act-row" id="actuatorLed">--</div>
+          </div>
+        </div>
+
+        <!-- 实时报警 -->
+        <div class="alarm-card">
+          <div class="alarm-header">
+            <span class="alarm-title" style="color:#EF4444">⚠ 实时报警</span>
+            <span class="alarm-status" id="alarmStatus">当前无实时报警</span>
+          </div>
+          <div class="alarm-list" id="alarmList">
+            <span class="alarm-empty">✅ 当前无实时报警</span>
+          </div>
+        </div>
+
+        <!-- 预警信息 -->
+        <div class="alarm-card">
+          <div class="alarm-header">
+            <span class="alarm-title" style="color:#F59E0B">📋 预警信息</span>
+            <span class="alarm-status" id="warnStatus">当前无预警信息</span>
+          </div>
+          <div class="alarm-list" id="warnList">
+            <span class="alarm-empty">✅ 当前无预警信息</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== 联动弹窗 Toast ===== -->
+    <div class="linkage-toast" id="linkageToast"></div>
+
+    <!-- ===== 底栏 ===== -->
+    <footer class="footer" id="footerDataTime">--</footer>
+    <div class="bg-deco"></div>
+
+    <!-- ===== 一键求助浮动按钮 ===== -->
+    <div class="help-float" id="helpFloat">
+      <button class="help-btn" id="helpBtn" title="紧急求助">
+        <span class="help-btn-icon">🆘</span>
+        <span class="help-btn-label">求助</span>
+      </button>
+      <div class="help-panel" id="helpPanel">
+        <div class="help-panel-title">请选择求助类型</div>
+        <button class="help-option" data-type="medical">
+          <span class="help-option-icon">🏥</span>
+          <span class="help-option-text">身体不适</span>
+        </button>
+        <button class="help-option" data-type="water">
+          <span class="help-option-icon">💧</span>
+          <span class="help-option-text">生活缺水</span>
+        </button>
+        <button class="help-option" data-type="power">
+          <span class="help-option-icon">🔌</span>
+          <span class="help-option-text">电力故障</span>
+        </button>
+        <button class="help-option" data-type="other">
+          <span class="help-option-icon">📢</span>
+          <span class="help-option-text">其他求助</span>
+        </button>
+        <button class="help-cancel" id="helpCancel">取消</button>
+      </div>
+      <div class="help-toast" id="helpToast">求助已发送，工作人员将尽快处理</div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/mqtt@5.10.3/dist/mqtt.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/history_data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

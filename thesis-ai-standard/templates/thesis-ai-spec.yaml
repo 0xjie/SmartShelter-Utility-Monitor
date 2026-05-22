@@ -1,0 +1,125 @@
+schema_version: "2.0"
+language: "zh-CN"
+encoding: "utf-8"
+
+paper:
+  title: "灾后临时安置点智慧水电管理与环境监测系统设计"
+  type: "本科毕业论文/毕业设计"
+  type_profile: "system_design"
+  school: "应急管理大学"
+  college: ""
+  major: ""
+  author: "王杰"
+  advisor: "程老师"
+  submission_date: "2026-05"
+  template_profile: "templates/standard-profile.yaml"
+
+standards:
+  priority:
+    - "学校毕业论文模板和学院细则"
+    - "导师明确要求"
+    - "教育部抽检与学术规范要求"
+    - "学校指定国家标准版本"
+    - "本套件默认规范"
+  reference_style:
+    standard: "GB/T 7714"
+    version: "2015"
+    notes: "按学校要求"
+  thesis_writing_reference:
+    standard: "GB/T 7713.1"
+    version: "2025"
+    notes: "作为结构和编排思想参考"
+
+topic:
+  background: "灾后临时安置点水电管理和环境监测面临人工巡检效率低、数据分散、异常响应滞后等问题。"
+  problem_statement: "缺乏集环境监测、水电计量、智能预警与远程控制于一体的综合系统。"
+  objectives:
+    - "设计并实现一套面向安置点的智慧水电管理与环境监测一体化系统"
+    - "实现六传感器数据采集、三级联动预警、水电剩余量模拟和双端上位机"
+  significance:
+    theoretical: "为物联网技术在应急管理领域的应用提供工程参考"
+    practical: "提升安置点管理信息化水平，保障受灾群众基本生活安全"
+  scope:
+    included:
+      - "STM32终端六传感器采集与执行器控制"
+      - "ESP32边缘网关MQTT通信"
+      - "Qt桌面端六大功能页面"
+      - "Web看板三栏可视化界面"
+      - "三级联动预警机制与组合告警"
+      - "水电剩余量积分模拟"
+    excluded:
+      - "移动端App开发"
+      - "多个安置点组网统一管理"
+      - "传感器长期现场标定验证"
+      - "Flash掉电保存"
+
+research_or_project:
+  domain: "物联网与应急管理"
+  object: "灾后临时安置点智慧水电管理与环境监测系统"
+  methodology:
+    - "硬件模块化设计与面包板原型搭建"
+    - "前后台系统嵌入式固件开发"
+    - "MQTT协议物联网通信"
+    - "Qt MVC桌面应用开发与Web前端开发"
+  data_sources:
+    - name: "传感器采集数据"
+      status: "provided"
+      notes: "72小时连续运行测试数据，存储在SQLite数据库"
+  implementation_sources:
+    code_repository: "D:\\AAA\\"
+    database_schema: "D:\\AAA\\System_UI\\databasemanager.cpp"
+    api_docs: "D:\\AAA\\系统说明文档.md"
+    test_reports: "D:\\AAA\\系统综述.md 第十章"
+
+technology_or_method_stack:
+  frontend: ["Qt 6 Widgets", "HTML5+CSS3+原生JS", "Chart.js", "MQTT.js"]
+  backend: []
+  database: ["SQLite 3"]
+  analysis_tools: []
+  experiment_tools: []
+  external_services: ["巴法云 MQTT (bemfa.com:9501)"]
+  notes: ""
+
+chapters:
+  - id: "chapter-1"
+    title: "绪论"
+    purpose: "说明背景、问题、意义、研究内容和论文结构"
+  - id: "chapter-2"
+    title: "系统需求分析"
+    purpose: "分析功能需求、非功能需求和系统约束"
+  - id: "chapter-3"
+    title: "系统总体设计"
+    purpose: "技术选型、架构设计、硬件方案、通信协议、数据库设计"
+  - id: "chapter-4"
+    title: "系统详细设计与实现"
+    purpose: "各模块具体实现方法"
+  - id: "chapter-5"
+    title: "系统测试"
+    purpose: "模块测试、通信测试、联动测试、连续运行测试"
+  - id: "conclusion"
+    title: "结论"
+    purpose: "总结工作、成果和展望"
+
+figure_policy:
+  caption_position: "图题置于图下"
+  table_caption_position: "表题置于表上"
+  source_required: true
+
+evidence_index:
+  project_evidence: "paper-context/evidence/project-evidence.json"
+  code_structure: "paper-context/evidence/code-structure.md"
+  tech_stack: "paper-context/evidence/tech-stack.md"
+  test_results: "paper-context/evidence/test-results.md"
+  reference_list: "paper-context/reference-list.md"
+
+ai_rules:
+  must_not_fabricate:
+    - "测试结果"
+    - "实验数据"
+    - "参考文献"
+    - "系统功能"
+  must_check:
+    - "学校模板优先级"
+    - "章节层级"
+    - "图表编号"
+    - "参考文献引用闭环"

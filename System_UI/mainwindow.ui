@@ -1,0 +1,772 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1280</width>
+    <height>800</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>灾后临时安置点智慧管理系统</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayoutRoot">
+    <property name="leftMargin">
+     <number>12</number>
+    </property>
+    <property name="topMargin">
+     <number>12</number>
+    </property>
+    <property name="rightMargin">
+     <number>12</number>
+    </property>
+    <property name="bottomMargin">
+     <number>12</number>
+    </property>
+    <item>
+     <widget class="QFrame" name="frameTopBar">
+      <property name="minimumSize">
+       <size>
+        <width>0</width>
+        <height>64</height>
+       </size>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QFrame#frameTopBar{background:#0f5fa8;border:1px solid #2f7fca;border-radius:10px;}</string>
+      </property>
+      <layout class="QHBoxLayout" name="horizontalLayoutTop">
+       <property name="leftMargin">
+        <number>16</number>
+       </property>
+       <property name="rightMargin">
+        <number>16</number>
+       </property>
+       <item>
+        <widget class="QLabel" name="labelSystemTitle">
+         <property name="styleSheet">
+          <string notr="true">QLabel{color:white;font-size:22px;font-weight:bold;}</string>
+         </property>
+         <property name="text">
+          <string>灾后临时安置点智慧管理系统</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="horizontalSpacerTop">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QLabel" name="labelCurrentUser">
+         <property name="styleSheet">
+          <string notr="true">QLabel{color:#e9f4ff;font-size:14px;}</string>
+         </property>
+         <property name="text">
+          <string>当前用户：</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayoutMain">
+      <property name="spacing">
+       <number>10</number>
+      </property>
+      <item>
+       <widget class="QListWidget" name="listWidgetNav">
+        <property name="minimumSize">
+         <size>
+          <width>190</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QListWidget{
+background:#f5faff;
+border:1px solid #cfe8ff;
+border-radius:10px;
+font-size:15px;
+}
+QListWidget::item{
+height:38px;
+padding-left:12px;
+}
+QListWidget::item:selected{
+background:#0f5fa8;
+color:white;
+border-radius:6px;
+}</string>
+        </property>
+        <item><property name="text"><string>首页总览</string></property></item>
+        <item><property name="text"><string>环境监测</string></property></item>
+        <item><property name="text"><string>水电管理</string></property></item>
+        <item><property name="text"><string>报警记录</string></property></item>
+        <item><property name="text"><string>远程控制</string></property></item>
+        <item><property name="text"><string>数据查询</string></property></item>
+        <item><property name="text"><string>系统设置</string></property></item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QStackedWidget" name="stackedWidgetPages">
+        <widget class="QWidget" name="pageDashboard">
+         <layout class="QVBoxLayout" name="verticalLayoutDashboard">
+          <item>
+           <widget class="QLabel" name="labelDashboardTitle">
+            <property name="styleSheet">
+             <string notr="true">QLabel{font-size:20px;font-weight:bold;color:#0f5fa8;}</string>
+            </property>
+            <property name="text">
+             <string>首页总览（Dashboard）</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QGridLayout" name="gridLayoutDashboard">
+            <item row="0" column="0"><widget class="QLabel" name="labelTempText"><property name="text"><string>当前温度</string></property></widget></item>
+            <item row="0" column="1"><widget class="QLabel" name="labelHumiText"><property name="text"><string>当前湿度</string></property></widget></item>
+            <item row="0" column="2"><widget class="QLabel" name="labelPmText"><property name="text"><string>PM2.5</string></property></widget></item>
+            <item row="0" column="3"><widget class="QLabel" name="labelWaterText"><property name="text"><string>当前用水量</string></property></widget></item>
+            <item row="0" column="4"><widget class="QLabel" name="labelPowerText"><property name="text"><string>当前用电量</string></property></widget></item>
+
+            <item row="1" column="0"><widget class="QLabel" name="labelTempValue"><property name="text"><string>--</string></property><property name="styleSheet"><string notr="true">QLabel{font-size:22px;font-weight:bold;color:#0f5fa8;}</string></property></widget></item>
+            <item row="1" column="1"><widget class="QLabel" name="labelHumiValue"><property name="text"><string>--</string></property><property name="styleSheet"><string notr="true">QLabel{font-size:22px;font-weight:bold;color:#0f5fa8;}</string></property></widget></item>
+            <item row="1" column="2"><widget class="QLabel" name="labelPmValue"><property name="text"><string>--</string></property><property name="styleSheet"><string notr="true">QLabel{font-size:22px;font-weight:bold;color:#0f5fa8;}</string></property></widget></item>
+            <item row="1" column="3"><widget class="QLabel" name="labelWaterValue"><property name="text"><string>--</string></property><property name="styleSheet"><string notr="true">QLabel{font-size:22px;font-weight:bold;color:#0f5fa8;}</string></property></widget></item>
+            <item row="1" column="4"><widget class="QLabel" name="labelPowerValue"><property name="text"><string>--</string></property><property name="styleSheet"><string notr="true">QLabel{font-size:22px;font-weight:bold;color:#0f5fa8;}</string></property></widget></item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelAlarmStatus">
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>36</height>
+             </size>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+            <property name="text">
+             <string>正常</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelRecentAlarmTitle">
+            <property name="styleSheet">
+             <string notr="true">QLabel{font-size:16px;font-weight:bold;color:#0f5fa8;}</string>
+            </property>
+            <property name="text">
+             <string>最近报警记录</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QListWidget" name="listWidgetRecentAlarms"/>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="pageEnvironment">
+         <layout class="QVBoxLayout" name="verticalLayoutEnvironment">
+          <item>
+           <widget class="QLabel" name="labelEnvTitle">
+            <property name="styleSheet">
+             <string notr="true">QLabel{font-size:20px;font-weight:bold;color:#0f5fa8;}</string>
+            </property>
+            <property name="text">
+             <string>环境监测页面</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QGridLayout" name="gridLayoutEnvData">
+            <item row="0" column="0"><widget class="QLabel" name="labelEnvTempText"><property name="text"><string>实时温度</string></property></widget></item>
+            <item row="0" column="1"><widget class="QLabel" name="labelEnvHumiText"><property name="text"><string>实时湿度</string></property></widget></item>
+            <item row="0" column="2"><widget class="QLabel" name="labelEnvPmText"><property name="text"><string>实时 PM2.5</string></property></widget></item>
+
+            <item row="1" column="0"><widget class="QLabel" name="labelEnvTempValue"><property name="text"><string>--</string></property><property name="styleSheet"><string notr="true">QLabel{font-size:24px;font-weight:bold;color:#0f5fa8;}</string></property></widget></item>
+            <item row="1" column="1"><widget class="QLabel" name="labelEnvHumiValue"><property name="text"><string>--</string></property><property name="styleSheet"><string notr="true">QLabel{font-size:24px;font-weight:bold;color:#0f5fa8;}</string></property></widget></item>
+            <item row="1" column="2"><widget class="QLabel" name="labelEnvPmValue"><property name="text"><string>--</string></property><property name="styleSheet"><string notr="true">QLabel{font-size:24px;font-weight:bold;color:#0f5fa8;}</string></property></widget></item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QFrame" name="frameChart">
+            <property name="styleSheet">
+             <string notr="true">QFrame#frameChart{border:1px solid #cfe8ff;border-radius:8px;background:#fbfdff;}</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayoutChart"/>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="pageWaterPower">
+         <layout class="QVBoxLayout" name="verticalLayoutWP">
+          <item>
+           <widget class="QLabel" name="labelWpTitle">
+            <property name="styleSheet">
+             <string notr="true">QLabel{font-size:20px;font-weight:bold;color:#0f5fa8;}</string>
+            </property>
+            <property name="text">
+             <string>水电管理页面</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QGridLayout" name="gridLayoutWpData">
+            <item row="0" column="0">
+             <widget class="QLabel" name="labelWpCurrentWaterText">
+              <property name="text">
+               <string>当前用水量</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QLabel" name="labelWpTotalWaterText">
+              <property name="text">
+               <string>累计用水量</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="2">
+             <widget class="QLabel" name="labelWpCurrentPowerText">
+              <property name="text">
+               <string>当前用电量</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="3">
+             <widget class="QLabel" name="labelWpTotalPowerText">
+              <property name="text">
+               <string>累计用电量</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="labelWpCurrentWaterValue">
+              <property name="styleSheet">
+               <string notr="true">QLabel{font-size:24px;font-weight:bold;color:#0f5fa8;}</string>
+              </property>
+              <property name="text">
+               <string>--</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QLabel" name="labelWpTotalWaterValue">
+              <property name="styleSheet">
+               <string notr="true">QLabel{font-size:24px;font-weight:bold;color:#0f5fa8;}</string>
+              </property>
+              <property name="text">
+               <string>--</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="2">
+             <widget class="QLabel" name="labelWpCurrentPowerValue">
+              <property name="styleSheet">
+               <string notr="true">QLabel{font-size:24px;font-weight:bold;color:#0f5fa8;}</string>
+              </property>
+              <property name="text">
+               <string>--</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="3">
+             <widget class="QLabel" name="labelWpTotalPowerValue">
+              <property name="styleSheet">
+               <string notr="true">QLabel{font-size:24px;font-weight:bold;color:#0f5fa8;}</string>
+              </property>
+              <property name="text">
+               <string>--</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelWpTableTitle">
+            <property name="styleSheet">
+             <string notr="true">QLabel{font-size:16px;font-weight:bold;color:#0f5fa8;}</string>
+            </property>
+            <property name="text">
+             <string>最近水电采样记录</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QTableWidget" name="tableWidgetWaterPower">
+            <property name="columnCount">
+             <number>5</number>
+            </property>
+            <column>
+             <property name="text">
+              <string>时间</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>当前用水(m3/h)</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>累计用水(m3)</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>当前用电(kW)</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>累计用电(kWh)</string>
+             </property>
+            </column>
+            <property name="rowCount">
+             <number>0</number>
+            </property>
+            <property name="editTriggers">
+             <set>QAbstractItemView::NoEditTriggers</set>
+            </property>
+            <property name="selectionBehavior">
+             <enum>QAbstractItemView::SelectRows</enum>
+            </property>
+            <property name="alternatingRowColors">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="pageAlarm">
+         <layout class="QVBoxLayout" name="verticalLayoutAlarm">
+          <item>
+           <widget class="QLabel" name="labelAlarmTitle">
+            <property name="styleSheet">
+             <string notr="true">QLabel{font-size:20px;font-weight:bold;color:#0f5fa8;}</string>
+            </property>
+            <property name="text">
+             <string>报警记录页面</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayoutAlarmFilter">
+            <item>
+             <widget class="QLabel" name="labelAlarmFilterText">
+              <property name="text">
+               <string>状态筛选：</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="comboBoxAlarmFilter"/>
+            </item>
+            <item>
+             <spacer name="horizontalSpacerAlarmFilter">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QTableWidget" name="tableWidgetAlarmHistory">
+            <property name="columnCount">
+             <number>4</number>
+            </property>
+            <column>
+             <property name="text">
+              <string>时间</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>类型</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>数值/描述</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>状态</string>
+             </property>
+            </column>
+            <property name="rowCount">
+             <number>0</number>
+            </property>
+            <property name="editTriggers">
+             <set>QAbstractItemView::NoEditTriggers</set>
+            </property>
+            <property name="selectionBehavior">
+             <enum>QAbstractItemView::SelectRows</enum>
+            </property>
+            <property name="alternatingRowColors">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="pageRemote">
+         <layout class="QVBoxLayout" name="verticalLayoutRemote">
+          <item>
+           <widget class="QLabel" name="labelRemoteTitle">
+            <property name="styleSheet">
+             <string notr="true">QLabel{font-size:20px;font-weight:bold;color:#0f5fa8;}</string>
+            </property>
+            <property name="text">
+             <string>远程控制页面（仅管理员）</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelRemotePermission">
+            <property name="styleSheet">
+             <string notr="true">QLabel{color:#1f4f7a;}</string>
+            </property>
+            <property name="text">
+             <string>权限状态</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QGridLayout" name="gridLayoutRemoteControl">
+            <item row="0" column="0">
+             <widget class="QLabel" name="labelWaterValveText">
+              <property name="text">
+               <string>水阀控制</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QLabel" name="labelWaterValveState">
+              <property name="text">
+               <string>关闭</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="2">
+             <widget class="QPushButton" name="btnWaterValve">
+              <property name="text">
+               <string>切换水阀</string>
+              </property>
+             </widget>
+            </item>
+
+            <item row="1" column="0">
+             <widget class="QLabel" name="labelLightText">
+              <property name="text">
+               <string>照明控制</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QLabel" name="labelLightState">
+              <property name="text">
+               <string>关闭</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="2">
+             <widget class="QPushButton" name="btnLight">
+              <property name="text">
+               <string>切换照明</string>
+              </property>
+             </widget>
+            </item>
+
+            <item row="2" column="0">
+             <widget class="QLabel" name="labelBuzzerText">
+              <property name="text">
+               <string>蜂鸣器控制</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QLabel" name="labelBuzzerState">
+              <property name="text">
+               <string>关闭</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="2">
+             <widget class="QPushButton" name="btnBuzzer">
+              <property name="text">
+               <string>切换蜂鸣器</string>
+              </property>
+             </widget>
+            </item>
+
+            <item row="3" column="0">
+             <widget class="QLabel" name="labelMotorText">
+              <property name="text">
+               <string>电机控制</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QLabel" name="labelMotorState">
+              <property name="text">
+               <string>关闭</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="2">
+             <widget class="QPushButton" name="btnMotor">
+              <property name="text">
+               <string>切换电机</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="pageQuery">
+         <layout class="QVBoxLayout" name="verticalLayoutQuery">
+          <item>
+           <widget class="QLabel" name="labelQueryTitle">
+            <property name="styleSheet">
+             <string notr="true">QLabel{font-size:20px;font-weight:bold;color:#0f5fa8;}</string>
+            </property>
+            <property name="text">
+             <string>数据查询页面</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayoutQueryBar">
+            <item>
+             <widget class="QLabel" name="labelQueryDateText">
+              <property name="text">
+               <string>选择日期：</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QDateEdit" name="dateEditQuery">
+              <property name="calendarPopup">
+               <bool>true</bool>
+              </property>
+              <property name="displayFormat">
+               <string>yyyy-MM-dd</string>
+              </property>
+              <property name="date">
+               <date>
+                <year>2026</year>
+                <month>4</month>
+                <day>10</day>
+               </date>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnQueryData">
+              <property name="text">
+               <string>查询数据</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacerQuery">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelQueryHint">
+            <property name="styleSheet">
+             <string notr="true">QLabel{color:#1f4f7a;}</string>
+            </property>
+            <property name="text">
+             <string>请选择日期后点击“查询数据”。</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QTableWidget" name="tableWidgetQueryResult">
+            <property name="columnCount">
+             <number>6</number>
+            </property>
+            <column>
+             <property name="text">
+              <string>时间</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>温度(℃)</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>湿度(%)</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>PM2.5(ug/m3)</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>用水(m3/h)</string>
+             </property>
+            </column>
+            <column>
+             <property name="text">
+              <string>用电(kW)</string>
+             </property>
+            </column>
+            <property name="rowCount">
+             <number>0</number>
+            </property>
+            <property name="editTriggers">
+             <set>QAbstractItemView::NoEditTriggers</set>
+            </property>
+            <property name="selectionBehavior">
+             <enum>QAbstractItemView::SelectRows</enum>
+            </property>
+            <property name="alternatingRowColors">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+        <widget class="QWidget" name="pageSetting">
+         <layout class="QVBoxLayout" name="verticalLayoutSetting">
+          <item>
+           <widget class="QLabel" name="labelSettingTitle">
+            <property name="styleSheet">
+             <string notr="true">QLabel{font-size:20px;font-weight:bold;color:#0f5fa8;}</string>
+            </property>
+            <property name="text">
+             <string>系统设置页面</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="groupBoxThreshold">
+            <property name="title">
+             <string>报警阈值设置</string>
+            </property>
+            <layout class="QGridLayout" name="gridLayoutThreshold">
+             <item row="0" column="0">
+              <widget class="QLabel" name="labelTempThresholdText">
+               <property name="text">
+                <string>温度报警阈值（℃）：</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QSpinBox" name="spinBoxTempThreshold">
+               <property name="minimum">
+                <number>10</number>
+               </property>
+               <property name="maximum">
+                <number>60</number>
+               </property>
+               <property name="value">
+                <number>31</number>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="labelPmThresholdText">
+               <property name="text">
+                <string>PM2.5 报警阈值：</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QSpinBox" name="spinBoxPmThreshold">
+               <property name="minimum">
+                <number>20</number>
+               </property>
+               <property name="maximum">
+                <number>500</number>
+               </property>
+               <property name="value">
+                <number>100</number>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="0" colspan="2">
+              <widget class="QPushButton" name="btnSaveThreshold">
+               <property name="text">
+                <string>保存阈值设置</string>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="0" colspan="2">
+              <widget class="QLabel" name="labelSettingHint">
+               <property name="styleSheet">
+                <string notr="true">QLabel{color:#1f4f7a;}</string>
+               </property>
+               <property name="text">
+                <string>当前报警阈值：温度 > 31 ℃ 或 PM2.5 > 100</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="groupBoxAbout">
+            <property name="title">
+             <string>关于本系统</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayoutAbout">
+             <item>
+              <widget class="QPlainTextEdit" name="plainTextEditAbout">
+               <property name="readOnly">
+                <bool>true</bool>
+               </property>
+               <property name="plainText">
+                <string>系统名称：灾后临时安置点智慧管理系统
+版本号：V1.0（教学演示版）
+开发技术：Qt 6 + Qt Widgets + Qt Charts
+
+系统说明：
+本系统用于灾后临时安置点的水电管理与环境监测，
+支持环境数据展示、水电管理、报警记录、远程控制、
+数据查询与系统设置等基础功能。
+
+声明：
+当前版本为课程/毕设演示版本，数据由假数据模拟生成。</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
