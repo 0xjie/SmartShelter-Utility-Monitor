@@ -10,6 +10,9 @@
 #include <QDateTime>
 
 #include <QtCharts/QChartView>
+#include <QtCharts/QBarCategoryAxis>
+#include <QtCharts/QBarSeries>
+#include <QtCharts/QBarSet>
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QValueAxis>
 #include <QtCharts/QDateTimeAxis>
@@ -31,6 +34,7 @@ class QLabel;
 class QFrame;
 class QColor;
 class QComboBox;
+class QDateTimeEdit;
 class QPushButton;
 class QProgressBar;
 class QTableWidget;
@@ -39,6 +43,7 @@ class QSpinBox;
 class QFile;
 class QLineEdit;
 class QCheckBox;
+class QDateEdit;
 
 class DatabaseManager;
 
@@ -90,26 +95,18 @@ private slots:
     // 周期刷新首页假数据
     void onUpdateDashboardData();
 
-    // 周期刷新环境监测页数值和折线图
-    void onUpdateEnvironmentData();
-
-    // 周期刷新水电管理页面数据（当前值、累计值、表格）
-    void onUpdateWaterPowerData();
 
     // 导出历史数据
 
-    // 设备管理按钮点击
-    void onAddDeviceClicked();
-    void onRemoveDeviceClicked();
-    void onDeviceDetailClicked();
-    void onUpdateFirmwareClicked();
-    void onSendRemoteControlClicked();
+
+
 
     // 历史数据导出按钮
     void onExportHistoryClicked();
 
     void onSwitchAccountClicked();
     void onEditAccountInfoClicked();
+    void onAddAccountClicked();
 
 private:
     // 初始化界面（标题、角色、默认页面等）
@@ -118,9 +115,6 @@ private:
     // 初始化信号槽连接
     void initConnections();
     void initMqtt();
-
-    // 初始化环境监测页面的折线图
-    void initEnvironmentChart();
 
     // 重建 6 个主页面
     void buildMainPages();
@@ -149,27 +143,30 @@ private:
 
     // 生成历史数据展示
     void refreshHistoryPage();
+    void ensureChartBuilt(int metricIdx);
 
-    // 刷新设备列表展示
-    void refreshDeviceTable();
     void appendRemoteControlLog(const QString& deviceId,
                                 const QString& command,
                                 const QString& result);
-    void syncDeviceInfoToDatabase();
     void loadRemoteExecLogTable();
-    int indexOfDeviceById(const QString& deviceId) const;
-    void triggerDeviceQuickAction(int deviceIndex, const QString& actionText);
-
     void toggleMaximizedState();
     void updateTitleBarButtons();
 
     // 为卡片状态点设置颜色
     void setCardStateDot(QLabel* dot, const QColor& color);
     void updateRealtimeCardOfflineState(bool offline);
-    void syncDeviceOfflineRecords(const QDateTime& now);
+    void exportDashboardHistoryData();
+    QString resolveDashboardHistoryDataPath() const;
+    void refreshWaterPowerUsageSummary();
+    void refreshWaterPowerAnalysisPage();
+    void exportWaterPowerAnalysis(bool includeSingleDay, bool includeTrend);
 
     // 导出真实 XLSX 文件
     bool exportHistoryAsXlsx(const QString& filePath, QString* errorMessage);
+    bool exportWaterPowerAnalysisAsXlsx(const QString& filePath,
+                                        bool includeSingleDay,
+                                        bool includeTrend,
+                                        QString* errorMessage);
     bool loadCurrentUserBasicInfo(QString* password, QString* errMsg);
     bool updateCurrentUserBasicInfo(const QString& newUsername,
                                     const QString& newPassword,
@@ -184,18 +181,55 @@ private:
     // 用于首页和环境监测页模拟实时数据
     QTimer* m_dataTimer;
 
-    // 下面这几个对象用于环境监测页面折线图
-    QLineSeries* m_tempSeries;
-    QLineSeries* m_humiSeries;
-    QLineSeries* m_pmSeries;
+    // 实时监控页折线图：电流 + 水流（双Y轴）
+    QLineSeries* m_currentSeries;
+    QLineSeries* m_flowSeries;
     QDateTimeAxis* m_axisX = nullptr;
-    QValueAxis* m_axisY;
-    QLineSeries* m_dashboardTempSeries;
-    QLineSeries* m_dashboardHumiSeries;
-    QLineSeries* m_dashboardPmSeries;
+    QValueAxis* m_axisY_Current;   // 左侧：电流(mA)
+    QValueAxis* m_axisY_Flow;      // 右侧：水流(L/min)
     QList<QLineSeries*> m_historyLineSeries;
     QList<QLineSeries*> m_historyLowerSeries;
     QList<QChartView*> m_historyChartViews;
+    QList<QChart*> m_historyCharts;
+    QList<QDateTimeAxis*> m_historyAxisXs;
+    QList<QValueAxis*> m_historyAxisYs;
+    QList<QWidget*> m_historyChartCards;
+    QLabel* m_historyPowerStatsLabel = nullptr;
+    QLabel* m_historyWaterStatsLabel = nullptr;
+    QDateTimeEdit* m_historyStartCombo = nullptr;
+    QDateTimeEdit* m_historyEndCombo = nullptr;
+    QList<QCheckBox*> m_historyMetricChecks;
+    QList<QLabel*> m_historyStatLabels;
+    QHBoxLayout* m_historyStatsLayout = nullptr;
+    QTimer* m_historyRefreshTimer = nullptr;
+    QDateEdit* m_wpAnalysisDateEdit = nullptr;
+    QComboBox* m_wpTrendDaysCombo = nullptr;
+    QBarSet* m_wpUsagePowerSet = nullptr;
+    QBarSet* m_wpUsageWaterSet = nullptr;
+    QBarSeries* m_wpUsagePowerSeries = nullptr;
+    QBarSeries* m_wpUsageWaterSeries = nullptr;
+    QChart* m_wpUsagePowerChart = nullptr;
+    QChart* m_wpUsageWaterChart = nullptr;
+    QChartView* m_wpUsagePowerChartView = nullptr;
+    QChartView* m_wpUsageWaterChartView = nullptr;
+    QBarCategoryAxis* m_wpUsageAxisX_Power = nullptr;
+    QBarCategoryAxis* m_wpUsageAxisX_Water = nullptr;
+    QValueAxis* m_wpUsageAxisY_Power = nullptr;
+    QValueAxis* m_wpUsageAxisY_Water = nullptr;
+    QLabel* m_wpUsageStatsLabel = nullptr;
+    QBarSet* m_wpTrendPowerSet = nullptr;
+    QBarSet* m_wpTrendWaterSet = nullptr;
+    QBarSeries* m_wpTrendPowerSeries = nullptr;
+    QBarSeries* m_wpTrendWaterSeries = nullptr;
+    QChart* m_wpTrendPowerChart = nullptr;
+    QChart* m_wpTrendWaterChart = nullptr;
+    QChartView* m_wpTrendPowerChartView = nullptr;
+    QChartView* m_wpTrendWaterChartView = nullptr;
+    QBarCategoryAxis* m_wpTrendAxisX_Power = nullptr;
+    QBarCategoryAxis* m_wpTrendAxisX_Water = nullptr;
+    QValueAxis* m_wpTrendAxisY_Power = nullptr;
+    QValueAxis* m_wpTrendAxisY_Water = nullptr;
+    QLabel* m_wpTrendStatsLabel = nullptr;
     // 水电管理页：自定义绘制组件
     QWidget* m_batteryGauge = nullptr;
     QWidget* m_tankGauge = nullptr;
@@ -203,27 +237,16 @@ private:
     QLabel* m_tankInfoLabel = nullptr;
     // 活跃报警追踪（检测报警消失以记录结束时间）
     QSet<int> m_prevAlmCodes;
+    QSet<int> m_builtPages;
     // 实时负载大字
     QLabel* m_wpLoadValueLabel = nullptr;
     QLabel* m_wpLoadStatusLabel = nullptr;
     QLabel* m_wpTodayPowerLabel = nullptr;
     QLabel* m_wpTodayWaterLabel = nullptr;
-    // 水电管理页图表：电流/水流折线图
-    QLineSeries* m_wpCurrentSeries = nullptr;
-    QLineSeries* m_wpFlowSeries = nullptr;
-    QChart* m_wpChart = nullptr;
-    QChartView* m_wpChartView = nullptr;
-    QDateTimeAxis* m_wpAxisX = nullptr;
-    QValueAxis* m_wpAxisY_Cur = nullptr;
-    QValueAxis* m_wpAxisY_Flow = nullptr;
-    QWidget* m_historyChartContainer = nullptr;
-    QGridLayout* m_historyGridLayout = nullptr;
-    QList<QCheckBox*> m_historySensorCheckBoxes;
+    QLabel* m_wpRecentRangeLabel = nullptr;
+    QLabel* m_wpRecentPowerLabel = nullptr;
+    QLabel* m_wpRecentWaterLabel = nullptr;
     QPushButton* m_historyConfirmBtn = nullptr;
-    QValueAxis* m_dashboardAxisX1;
-    QValueAxis* m_dashboardAxisY1;
-    QValueAxis* m_dashboardAxisX2;
-    QValueAxis* m_dashboardAxisY2;
     QLabel* m_timeLabel;
     QLabel* m_cardTempValue;
     QLabel* m_cardHumiValue;
@@ -247,65 +270,24 @@ private:
     QLabel* m_totalPowerLabel;
     QLabel* m_totalWaterLabel;
     QLabel* m_realtimeStatusLabel;
-    QLabel* m_realtimeTimestampLabel;
-    QProgressBar* m_batteryPctBar = nullptr;
-    QLabel* m_batteryPctLabel = nullptr;
-    QLabel* m_batteryRemainLabel = nullptr;
-    QProgressBar* m_waterPctBar = nullptr;
-    QLabel* m_waterPctLabel = nullptr;
-    QLabel* m_waterRemainLabel = nullptr;
     QLabel* m_windowIconLabel;
     QPushButton* m_minimizeButton;
     QPushButton* m_maximizeButton;
     QPushButton* m_closeButton;
     bool m_dragging = false;
     QPoint m_dragOffset;
-    int m_dashboardStep;
-
-    // X 轴时间步，显示最近 20 个点
-    int m_chartStep;
-
     // 实时页面累计数据（用于教学演示）
     double m_totalCurrent;
     double m_totalWater;
     double m_totalPower;
+    int m_lastUsedPowerMAh = 0;
+    int m_lastUsedWaterCL = 0;
 
-    QLabel* m_historyStatsLabel;
-    QLabel* m_historyStatsLeftLabel;
-    QLabel* m_historyStatsRightLabel;
-    QLabel* m_historySummaryLabel;
-    QLabel* m_historyDataSourceLabel;
-    QTableWidget* m_realtimeSensorTable;
     QTableWidget* m_alarmInfoTable;
-    QTableWidget* m_deviceTable;
-    QLineEdit* m_deviceSearchEdit;
-    QComboBox* m_deviceStatusFilterCombo;
-    QComboBox* m_deviceTypeFilterCombo;
     QComboBox* m_remoteDeviceCombo;
     QComboBox* m_remoteCommandCombo;
-    QSpinBox* m_remoteIntervalSpin;
     QPlainTextEdit* m_logViewer;
-    QTableWidget* m_remoteControlLogTable;
     QPlainTextEdit* m_remoteLogMarqueeView = nullptr;
-
-    struct DeviceInfo {
-        QString id;
-        QString name;
-        QString type;
-        QString location;
-        QString status;
-        int battery;
-        QString firmware;
-        bool remoteControlEnabled;
-        int sampleIntervalSec;
-        double latestValue;
-        QString latestValueUnit;
-        double warningUpper;
-        double warningLower;
-        bool notifyBuzzer;
-        bool notifyEmail;
-        bool notifySms;
-    };
 
     struct HistoryPoint {
         QString timeLabel;
@@ -318,7 +300,6 @@ private:
         QDateTime timestamp;
     };
 
-    QList<DeviceInfo> m_devices;
     QList<HistoryPoint> m_historyPoints;
 
     DatabaseManager* m_db = nullptr;
@@ -328,6 +309,7 @@ private:
     qint64 m_lastOfflineDurationSec = -1;
     QDateTime m_lastLocalAlarmAt;
     QDateTime m_lastRealtimeDataAt;
+    QDateTime m_lastDashboardHistoryExportAt;
     /** 用于累计能耗/电量/流量的上一次采样时刻（与 MQTT / 定时刷新共用 updateData） */
     QDateTime m_lastCumulativeSampleAt;
     QDateTime m_offlineStartAt;

@@ -4,6 +4,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDate>
 #include <QDialog>
 #include <QDebug>
 #include <QPalette>
@@ -74,625 +75,7 @@
 
 #include "databasemanager.h"
 #include "dbconfig.h"
-
-namespace {
-
-// 级别色直接从 STM32 上报的 lv.d 数组读取，不再本地计算
-
-void applySensorLevelStyle(QLabel* valueLabel, QLabel* dotLabel, QLabel* stateLabel, int lv) {
-    if (valueLabel != nullptr) {
-        QString css;
-        if (lv >= 2)      css = QStringLiteral("QLabel{color:#ef4444;font-size:28px;font-weight:800;}");
-        else if (lv == 1) css = QStringLiteral("QLabel{color:#f59e0b;font-size:28px;font-weight:800;}");
-        else              css = QStringLiteral("QLabel{color:#f8fbff;font-size:28px;font-weight:800;}");
-        valueLabel->setStyleSheet(css);
-    }
-    if (dotLabel != nullptr) {
-        QColor c;
-        if (lv >= 2)      c = QColor(239, 68, 68);
-        else if (lv == 1) c = QColor(245, 158, 11);
-        else              c = QColor(34, 197, 94);
-        dotLabel->setStyleSheet(QStringLiteral("QLabel{background:%1;border-radius:6px;}").arg(c.name()));
-    }
-    if (stateLabel != nullptr) {
-        QString text, css;
-        if (lv >= 2)      { text = QStringLiteral("警告"); css = QStringLiteral("QLabel{color:#ef4444;font-size:12px;font-weight:600;}"); }
-        else if (lv == 1) { text = QStringLiteral("预警"); css = QStringLiteral("QLabel{color:#f59e0b;font-size:12px;font-weight:600;}"); }
-        else              { text = QStringLiteral("正常"); css = QStringLiteral("QLabel{color:#22c55e;font-size:12px;font-weight:600;}"); }
-        stateLabel->setText(text);
-        stateLabel->setStyleSheet(css);
-    }
-}
-
-static QString lvStatusZh(int lv) {
-    if (lv >= 2) return QStringLiteral("警告");
-    if (lv == 1) return QStringLiteral("预警");
-    return QStringLiteral("正常");
-}
-
-static QString lvDeviceStatus(int lv) {
-    if (lv >= 2) return QStringLiteral("告警");
-    if (lv == 1) return QStringLiteral("关注");
-    return QStringLiteral("运行中");
-}
-
-// ====== 自定义弹窗（无原生边框，主题风格统一）======
-
-/** 确认对话框（返回 true=是/确认） */
-static bool customConfirm(QWidget* parent, const QString& title, const QString& text) {
-    QDialog dlg(parent);
-    dlg.setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
-    dlg.setModal(true);
-    dlg.setFixedSize(400, 200);
-    dlg.setStyleSheet(
-        "QDialog{background:#0a1628;border:1px solid #1e3a5f;border-radius:12px;}");
-
-    auto* layout = new QVBoxLayout(&dlg);
-    layout->setSpacing(0);
-    layout->setContentsMargins(0, 0, 0, 0);
-
-    // 标题栏
-    auto* titleBar = new QWidget(&dlg);
-    titleBar->setStyleSheet("background:#0f1f3a;border-radius:12px 12px 0 0;");
-    auto* titleLay = new QHBoxLayout(titleBar);
-    titleLay->setContentsMargins(16, 10, 8, 10);
-    auto* titleLabel = new QLabel(title, titleBar);
-    titleLabel->setStyleSheet("QLabel{color:#7dd3fc;font-size:15px;font-weight:700;}");
-    titleLay->addWidget(titleLabel);
-    titleLay->addStretch();
-    auto* closeBtn = new QPushButton("✕", titleBar);
-    closeBtn->setFixedSize(28, 28);
-    closeBtn->setStyleSheet(
-        "QPushButton{background:transparent;color:#7a8fb8;border:none;"
-        "border-radius:14px;font-size:14px;font-weight:700;}"
-        "QPushButton:hover{background:#ef4444;color:white;}");
-    QObject::connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
-    titleLay->addWidget(closeBtn);
-    layout->addWidget(titleBar);
-
-    // 内容
-    auto* body = new QWidget(&dlg);
-    body->setStyleSheet("background:transparent;");
-    auto* bodyLay = new QVBoxLayout(body);
-    bodyLay->setContentsMargins(24, 20, 24, 16);
-    auto* msgLabel = new QLabel(text, body);
-    msgLabel->setWordWrap(true);
-    msgLabel->setStyleSheet("QLabel{color:#e8f0ff;font-size:14px;line-height:1.5;}");
-    bodyLay->addWidget(msgLabel);
-    bodyLay->addStretch();
-    layout->addWidget(body, 1);
-
-    // 按钮行
-    auto* btnBar = new QWidget(&dlg);
-    btnBar->setStyleSheet("background:#0a1628;border-radius:0 0 12px 12px;");
-    auto* btnLay = new QHBoxLayout(btnBar);
-    btnLay->setContentsMargins(16, 8, 16, 14);
-    btnLay->addStretch();
-    auto* noBtn = new QPushButton("取消", btnBar);
-    noBtn->setFixedHeight(34);
-    noBtn->setStyleSheet(
-        "QPushButton{background:#1e293b;color:#94a3b8;border:1px solid #334155;"
-        "border-radius:8px;padding:6px 24px;font-size:13px;font-weight:600;}"
-        "QPushButton:hover{background:#334155;color:#cbd5e1;}");
-    auto* yesBtn = new QPushButton("确认", btnBar);
-    yesBtn->setFixedHeight(34);
-    yesBtn->setStyleSheet(
-        "QPushButton{background:#0f5fa8;color:white;border:1px solid #2f7fca;"
-        "border-radius:8px;padding:6px 24px;font-size:13px;font-weight:700;}"
-        "QPushButton:hover{background:#1a7ad4;}");
-    QObject::connect(noBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
-    QObject::connect(yesBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
-    btnLay->addWidget(noBtn);
-    btnLay->addWidget(yesBtn);
-    layout->addWidget(btnBar);
-
-    return dlg.exec() == QDialog::Accepted;
-}
-
-/** 提示/警告对话框 */
-static void customMessage(QWidget* parent, const QString& title, const QString& text,
-                          bool isWarning = false) {
-    QDialog dlg(parent);
-    dlg.setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
-    dlg.setModal(true);
-    dlg.setFixedSize(400, 200);
-    dlg.setStyleSheet(
-        "QDialog{background:#0a1628;border:1px solid #1e3a5f;border-radius:12px;}");
-
-    auto* layout = new QVBoxLayout(&dlg);
-    layout->setSpacing(0);
-    layout->setContentsMargins(0, 0, 0, 0);
-
-    auto* titleBar = new QWidget(&dlg);
-    titleBar->setStyleSheet("background:#0f1f3a;border-radius:12px 12px 0 0;");
-    auto* titleLay = new QHBoxLayout(titleBar);
-    titleLay->setContentsMargins(16, 10, 8, 10);
-    auto* titleLabel = new QLabel(title, titleBar);
-    titleLabel->setStyleSheet("QLabel{color:#7dd3fc;font-size:15px;font-weight:700;}");
-    titleLay->addWidget(titleLabel);
-    titleLay->addStretch();
-    auto* closeBtn = new QPushButton("✕", titleBar);
-    closeBtn->setFixedSize(28, 28);
-    closeBtn->setStyleSheet(
-        "QPushButton{background:transparent;color:#7a8fb8;border:none;"
-        "border-radius:14px;font-size:14px;font-weight:700;}"
-        "QPushButton:hover{background:#ef4444;color:white;}");
-    QObject::connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
-    titleLay->addWidget(closeBtn);
-    layout->addWidget(titleBar);
-
-    auto* body = new QWidget(&dlg);
-    body->setStyleSheet("background:transparent;");
-    auto* bodyLay = new QVBoxLayout(body);
-    bodyLay->setContentsMargins(24, 20, 24, 16);
-    auto* msgLabel = new QLabel(text, body);
-    msgLabel->setWordWrap(true);
-    QString msgColor = isWarning ? "#fbbf24" : "#e8f0ff";
-    msgLabel->setStyleSheet(QString("QLabel{color:%1;font-size:14px;line-height:1.5;}").arg(msgColor));
-    bodyLay->addWidget(msgLabel);
-    bodyLay->addStretch();
-    layout->addWidget(body, 1);
-
-    auto* btnBar = new QWidget(&dlg);
-    btnBar->setStyleSheet("background:#0a1628;border-radius:0 0 12px 12px;");
-    auto* btnLay = new QHBoxLayout(btnBar);
-    btnLay->setContentsMargins(16, 8, 16, 14);
-    btnLay->addStretch();
-    auto* okBtn = new QPushButton("确定", btnBar);
-    okBtn->setFixedHeight(34);
-    okBtn->setStyleSheet(
-        "QPushButton{background:#0f5fa8;color:white;border:1px solid #2f7fca;"
-        "border-radius:8px;padding:6px 24px;font-size:13px;font-weight:700;}"
-        "QPushButton:hover{background:#1a7ad4;}");
-    QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
-    btnLay->addWidget(okBtn);
-    layout->addWidget(btnBar);
-
-    dlg.exec();
-}
-
-void showExportSuccessDialog(QWidget* parent, const QString& nativePath) {
-    QDialog dlg(parent);
-    dlg.setWindowTitle(QStringLiteral("导出成功"));
-    dlg.setModal(true);
-    dlg.resize(540, 240);
-    dlg.setStyleSheet(
-        QStringLiteral(
-            "QDialog{background-color:#f8fafc;}"
-            "QLabel{color:#0f172a;}"
-            "QPushButton{background-color:#2563eb;color:#ffffff;padding:8px 22px;"
-            "border-radius:8px;font-weight:600;border:none;min-width:88px;}"
-            "QPushButton:hover{background-color:#1d4ed8;}"
-            "QPushButton:pressed{background-color:#1e40af;}"));
-
-    auto* layout = new QVBoxLayout(&dlg);
-    layout->setSpacing(12);
-    layout->setContentsMargins(24, 20, 24, 20);
-
-    auto* iconTitleRow = new QHBoxLayout();
-    auto* okIcon = new QLabel(&dlg);
-    okIcon->setFixedSize(44, 44);
-    okIcon->setAlignment(Qt::AlignCenter);
-    okIcon->setStyleSheet(QStringLiteral(
-        "QLabel{background-color:#22c55e;border-radius:22px;color:#ffffff;"
-        "font-size:20px;font-weight:800;}"));
-    okIcon->setText(QStringLiteral("✓"));
-
-    auto* title = new QLabel(QStringLiteral("导出成功"), &dlg);
-    title->setStyleSheet(QStringLiteral("font-size:20px;font-weight:800;color:#0f172a;"));
-
-    iconTitleRow->addWidget(okIcon);
-    iconTitleRow->addSpacing(12);
-    iconTitleRow->addWidget(title);
-    iconTitleRow->addStretch();
-
-    auto* hint =
-        new QLabel(QStringLiteral("文件已保存到下列路径，可直接全选复制："), &dlg);
-    hint->setStyleSheet(QStringLiteral("font-size:13px;color:#334155;font-weight:600;"));
-
-    auto* pathEdit = new QLineEdit(nativePath, &dlg);
-    pathEdit->setReadOnly(true);
-    pathEdit->setStyleSheet(
-        QStringLiteral(
-            "QLineEdit{padding:10px 12px;font-size:13px;color:#0f172a;"
-            "background-color:#ffffff;border:2px solid #94a3b8;border-radius:8px;"
-            "selection-background-color:#2563eb;selection-color:#ffffff;}"));
-
-    auto* foot = new QLabel(
-        QStringLiteral("格式：原生 XLSX（含样式、合并单元格与列宽）"), &dlg);
-    foot->setStyleSheet(QStringLiteral("font-size:12px;color:#64748b;"));
-    foot->setWordWrap(true);
-
-    auto* btnRow = new QHBoxLayout();
-    btnRow->addStretch();
-    auto* okBtn = new QPushButton(QStringLiteral("确定"), &dlg);
-    QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
-    btnRow->addWidget(okBtn);
-
-    layout->addLayout(iconTitleRow);
-    layout->addWidget(hint);
-    layout->addWidget(pathEdit);
-    layout->addWidget(foot);
-    layout->addSpacing(8);
-    layout->addLayout(btnRow);
-
-    pathEdit->setFocus();
-    pathEdit->selectAll();
-
-    dlg.exec();
-}
-
-QString stripRemoteLogCodeSuffix(QString text) {
-    static const QRegularExpression re(QStringLiteral(R"((（码|\(码)\s*\d+(）|\)))"));
-    text.remove(re);
-    return text.trimmed();
-}
-
-QString formatRemoteLogTableLine(const QString& executeTime,
-                                 const QString& deviceId,
-                                 const QString& commandText,
-                                 const QString& resultText) {
-    const QString res = stripRemoteLogCodeSuffix(resultText);
-    return QStringLiteral("%1 | %2 | %3 | %4")
-        .arg(executeTime, -19, QLatin1Char(' '))
-        .arg(deviceId, -10, QLatin1Char(' '))
-        .arg(commandText, -18, QLatin1Char(' '))
-        .arg(res);
-}
-
-/** 设备管理页：悬停轻微放大，移出复原 */
-class DeviceHoverCard final : public QFrame {
-public:
-    explicit DeviceHoverCard(QWidget* parent = nullptr)
-        : QFrame(parent) {
-        setAttribute(Qt::WA_Hover, true);
-        setCursor(Qt::PointingHandCursor);
-        setFrameShape(QFrame::NoFrame);
-        setObjectName(QStringLiteral("deviceInfoCard"));
-        m_anim = new QVariantAnimation(this);
-        m_anim->setDuration(170);
-        m_anim->setEasingCurve(QEasingCurve::OutCubic);
-        connect(m_anim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
-            const QSize sz = v.toSize();
-            if (sz.isValid() && !sz.isEmpty()) {
-                setFixedSize(sz);
-            }
-        });
-    }
-
-    void setBaseSize(int w, int h) {
-        m_baseW = qMax(48, w);
-        m_baseH = qMax(48, h);
-        setFixedSize(m_baseW, m_baseH);
-    }
-
-protected:
-    void enterEvent(QEnterEvent* event) override {
-        QFrame::enterEvent(event);
-        raise();
-        animateToHover(true);
-    }
-
-    void leaveEvent(QEvent* event) override {
-        QFrame::leaveEvent(event);
-        animateToHover(false);
-    }
-
-private:
-    void animateToHover(bool hovered) {
-        if (m_anim->state() == QAbstractAnimation::Running) {
-            m_anim->stop();
-        }
-        const QSize target =
-            hovered ? QSize(static_cast<int>(m_baseW * 1.08), static_cast<int>(m_baseH * 1.08))
-                    : QSize(m_baseW, m_baseH);
-        m_anim->setStartValue(size());
-        m_anim->setEndValue(target);
-        m_anim->start();
-    }
-
-    int m_baseW = 200;
-    int m_baseH = 110;
-    QVariantAnimation* m_anim = nullptr;
-};
-
-void clearLayout(QLayout* layout) {
-    if (layout == nullptr) {
-        return;
-    }
-
-    while (QLayoutItem* item = layout->takeAt(0)) {
-        if (item->layout() != nullptr) {
-            clearLayout(item->layout());
-        }
-        if (item->widget() != nullptr) {
-            item->widget()->deleteLater();
-        }
-        delete item;
-    }
-}
-
-void applyShadow(QWidget* widget) {
-    if (widget == nullptr) {
-        return;
-    }
-
-    auto* effect = new QGraphicsDropShadowEffect(widget);
-    effect->setBlurRadius(24);
-    effect->setOffset(0, 8);
-    effect->setColor(QColor(15, 23, 42, 35));
-    widget->setGraphicsEffect(effect);
-}
-
-QFrame* createPanelCard(QWidget* parent) {
-    auto* frame = new QFrame(parent);
-    frame->setObjectName("panelCard");
-    frame->setFrameShape(QFrame::NoFrame);
-    frame->setStyleSheet(
-        "QFrame#panelCard{"
-        "background:rgba(9, 33, 71, 218);"
-        "border:1px solid rgba(80, 166, 255, 0.35);"
-        "border-radius:18px;"
-        "}");
-    applyShadow(frame);
-    return frame;
-}
-
-QIcon createEmergencyWindowIcon() {
-    QPixmap pixmap(64, 64);
-    pixmap.fill(Qt::transparent);
-
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-
-    QLinearGradient bg(0, 0, 64, 64);
-    bg.setColorAt(0.0, QColor(0x0a, 0x2f, 0x63));
-    bg.setColorAt(1.0, QColor(0x0f, 0x7a, 0xe5));
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(bg);
-    painter.drawRoundedRect(QRectF(2, 2, 60, 60), 16, 16);
-
-    QPainterPath shield;
-    shield.moveTo(32, 12);
-    shield.lineTo(47, 18);
-    shield.lineTo(45, 34);
-    shield.quadTo(42, 46, 32, 52);
-    shield.quadTo(22, 46, 19, 34);
-    shield.lineTo(17, 18);
-    shield.closeSubpath();
-    painter.setBrush(QColor(255, 255, 255, 235));
-    painter.drawPath(shield);
-
-    painter.setBrush(QColor(0x0f, 0x5f, 0xa8));
-    painter.drawRoundedRect(QRectF(28, 21, 8, 18), 2, 2);
-    painter.drawRoundedRect(QRectF(23, 26, 18, 8), 2, 2);
-
-    QPen radarPen(QColor(120, 219, 255, 210), 2.2, Qt::SolidLine, Qt::RoundCap);
-    painter.setPen(radarPen);
-    painter.setBrush(Qt::NoBrush);
-    painter.drawArc(QRectF(10, 10, 44, 44), 30 * 16, 56 * 16);
-    painter.drawArc(QRectF(15, 15, 34, 34), 32 * 16, 48 * 16);
-
-    return QIcon(pixmap);
-}
-
-QString sensorTypeShortLabel(const QString& type) {
-    if (type.contains("Temperature", Qt::CaseInsensitive) || type.contains("温度")) {
-        return "TEMP";
-    }
-    if (type.contains("Humidity", Qt::CaseInsensitive) || type.contains("湿度")) {
-        return "HUMI";
-    }
-    if (type.contains("Current", Qt::CaseInsensitive) || type.contains("电流")) {
-        return "CURR";
-    }
-    if (type.contains("PM2.5", Qt::CaseInsensitive) || type.contains("PM25", Qt::CaseInsensitive)) {
-        return "PM25";
-    }
-    return "SENSOR";
-}
-
-QPixmap createAlarmIconPixmap(const QSize& size) {
-    QPixmap pixmap(size);
-    pixmap.fill(Qt::transparent);
-
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-
-    const QRectF bounds = QRectF(2, 2, size.width() - 4, size.height() - 4);
-    QPainterPath path;
-    path.moveTo(bounds.center().x(), bounds.top());
-    path.lineTo(bounds.right(), bounds.bottom());
-    path.lineTo(bounds.left(), bounds.bottom());
-    path.closeSubpath();
-
-    painter.fillPath(path, QColor(0xdc, 0x26, 0x26));
-    painter.setPen(QPen(QColor(0x7f, 0x1d, 0x1d), 1.5));
-    painter.drawPath(path);
-
-    painter.setPen(QPen(Qt::white, qMax(2, size.width() / 10), Qt::SolidLine, Qt::RoundCap));
-    painter.drawLine(QPointF(bounds.center().x(), bounds.top() + bounds.height() * 0.26),
-                     QPointF(bounds.center().x(), bounds.top() + bounds.height() * 0.66));
-    painter.drawPoint(QPointF(bounds.center().x(), bounds.top() + bounds.height() * 0.82));
-
-    return pixmap;
-}
-
-void showRealtimeAlarmDialog(QWidget* parent, const QString& detailText) {
-    QDialog dialog(parent);
-    dialog.setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
-    dialog.setModal(true);
-    dialog.setObjectName("realtimeAlarmDialog");
-    dialog.setStyleSheet(
-        "QDialog#realtimeAlarmDialog{"
-        "background:#fff5f5;"
-        "border:3px solid #dc2626;"
-        "border-radius:16px;"
-        "}"
-        "QLabel#alarmTitle{"
-        "color:#b91c1c;"
-        "font-size:26px;"
-        "font-weight:800;"
-        "}"
-        "QLabel#alarmDetail{"
-        "color:#7f1d1d;"
-        "font-size:18px;"
-        "font-weight:600;"
-        "line-height:1.6;"
-        "}"
-        "QPushButton#alarmOkButton{"
-        "min-width:130px;"
-        "min-height:42px;"
-        "border-radius:12px;"
-        "border:1px solid #dc2626;"
-        "background:#ff1010;"
-        "color:white;"
-        "font-size:16px;"
-        "font-weight:800;"
-        "padding:0 22px;"
-        "}"
-        "QPushButton#alarmOkButton:hover{background:#dc2626;}"
-        "QPushButton#alarmOkButton:pressed{background:#991b1b;}"
-        "QPushButton#alarmCloseButton{"
-        "border:none;"
-        "background:transparent;"
-        "color:#b91c1c;"
-        "font-size:22px;"
-        "font-weight:800;"
-        "min-width:28px;"
-        "min-height:28px;"
-        "}"
-        "QPushButton#alarmCloseButton:hover{color:#7f1d1d;}");
-
-    auto* rootLayout = new QVBoxLayout(&dialog);
-    rootLayout->setContentsMargins(18, 14, 18, 18);
-    rootLayout->setSpacing(10);
-
-    auto* topRow = new QHBoxLayout();
-    topRow->setContentsMargins(0, 0, 0, 0);
-    topRow->addStretch();
-    auto* closeButton = new QPushButton(QString(QChar(0x00D7)), &dialog);
-    closeButton->setObjectName("alarmCloseButton");
-    topRow->addWidget(closeButton, 0, Qt::AlignRight);
-    rootLayout->addLayout(topRow);
-
-    auto* contentRow = new QHBoxLayout();
-    contentRow->setSpacing(16);
-
-    auto* iconLabel = new QLabel(&dialog);
-    iconLabel->setPixmap(createAlarmIconPixmap(QSize(72, 72)));
-    iconLabel->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
-    contentRow->addWidget(iconLabel, 0, Qt::AlignTop);
-
-    auto* textLayout = new QVBoxLayout();
-    textLayout->setSpacing(10);
-    auto* titleLabel = new QLabel("设备告警", &dialog);
-    titleLabel->setObjectName("alarmTitle");
-    auto* detailLabel = new QLabel(detailText, &dialog);
-    detailLabel->setObjectName("alarmDetail");
-    detailLabel->setWordWrap(true);
-    textLayout->addWidget(titleLabel);
-    textLayout->addWidget(detailLabel);
-    textLayout->addStretch();
-    contentRow->addLayout(textLayout, 1);
-
-    rootLayout->addLayout(contentRow);
-
-    auto* buttonRow = new QHBoxLayout();
-    buttonRow->addStretch();
-    auto* okButton = new QPushButton("OK", &dialog);
-    okButton->setObjectName("alarmOkButton");
-    buttonRow->addWidget(okButton);
-    rootLayout->addLayout(buttonRow);
-
-    QObject::connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::reject);
-    QObject::connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-
-    dialog.resize(520, 220);
-    dialog.exec();
-}
-}  // namespace
-
-/* ---- 水电页面自定义绘制组件 ---- */
-
-class BatteryGauge : public QWidget {
-    double m_pct = 100;
-public:
-    explicit BatteryGauge(QWidget* parent = nullptr) : QWidget(parent) { setFixedSize(76, 160); }
-    void setPct(double p) { m_pct = qBound(0.0, p, 100.0); update(); }
-protected:
-    void paintEvent(QPaintEvent*) override {
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-        const int w = width(), h = height();
-        const int shellPad = 3, nubW = 20, nubH = 7, shellTop = nubH + 2, bodyH = h - shellTop - 4;
-        const QRect body(4, shellTop, w - 8, bodyH);
-        // nub
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor(200,210,220));
-        p.drawRoundedRect(QRect((w - nubW) / 2, 2, nubW, nubH), 3, 3);
-        // shell
-        p.setBrush(QColor(20, 40, 70, 220));
-        p.setPen(QPen(QColor(120,160,200,120), 1.5));
-        p.drawRoundedRect(body, 8, 8);
-        // fill color
-        QColor fillC;
-        if (m_pct > 60)      fillC = QColor(34, 197, 94);
-        else if (m_pct > 30) fillC = QColor(245, 158, 11);
-        else                 fillC = QColor(239, 68, 68);
-        // fill
-        int fillH = qMax(4, (int)(bodyH * m_pct / 100.0));
-        QRect fillR(body.x() + 2, body.y() + bodyH - fillH, body.width() - 4, fillH - 1);
-        p.setPen(Qt::NoPen);
-        p.setBrush(fillC);
-        p.drawRoundedRect(fillR, 5, 5);
-        // pct text
-        p.setPen(QColor(255,255,255));
-        QFont f = p.font(); f.setPixelSize(16); f.setBold(true); p.setFont(f);
-        p.drawText(body, Qt::AlignCenter, QString("%1%").arg((int)m_pct));
-    }
-};
-
-class TankGauge : public QWidget {
-    double m_pct = 100;
-public:
-    explicit TankGauge(QWidget* parent = nullptr) : QWidget(parent) { setFixedSize(76, 160); }
-    void setPct(double p) { m_pct = qBound(0.0, p, 100.0); update(); }
-protected:
-    void paintEvent(QPaintEvent*) override {
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-        const int w = width(), h = height();
-        const int pad = 3, bodyH = h - 14;
-        const QRect body(pad, 0, w - pad * 2, bodyH);
-        // shell - trapezoid approximation for tank shape (wider top)
-        QPainterPath shellPath;
-        int topW = body.width();
-        int botW = body.width() - 10;
-        shellPath.addRoundedRect(QRect(body.x() + (topW - botW) / 2, body.y(), botW, body.height()), 10, 10);
-        p.setBrush(QColor(20, 40, 70, 220));
-        p.setPen(QPen(QColor(120,160,200,120), 1.5));
-        p.drawPath(shellPath);
-        // fill color
-        QColor fillC;
-        if (m_pct > 60)      fillC = QColor(59, 130, 246);
-        else if (m_pct > 30) fillC = QColor(245, 158, 11);
-        else                 fillC = QColor(239, 68, 68);
-        // fill
-        int fillH = qMax(3, (int)(bodyH * m_pct / 100.0));
-        QRect fillR(body.x() + (topW - botW) / 2 + 2, body.y() + bodyH - fillH, botW - 4, fillH - 2);
-        p.setPen(Qt::NoPen);
-        p.setBrush(fillC);
-        p.drawRoundedRect(fillR, 7, 7);
-        // lid
-        p.setBrush(QColor(120,160,200,80));
-        p.drawRoundedRect(QRect(body.x() + 6, body.y() + 2, topW - 12, 6), 2, 2);
-        // pct text
-        p.setPen(QColor(255,255,255));
-        QFont f = p.font(); f.setPixelSize(16); f.setBold(true); p.setFont(f);
-        p.drawText(body, Qt::AlignCenter, QString("%1%").arg((int)m_pct));
-    }
-};
+#include "mainwindow_utils.h"
 
 MainWindow::MainWindow(const QString& userName,
                        const QString& userRole,
@@ -702,20 +85,21 @@ MainWindow::MainWindow(const QString& userName,
       m_userName(userName),
       m_userRole(userRole),
       m_dataTimer(nullptr),
-      m_tempSeries(nullptr),
-      m_humiSeries(nullptr),
-      m_pmSeries(nullptr),
+      m_currentSeries(nullptr),
+      m_flowSeries(nullptr),
       m_axisX(nullptr),
-      m_axisY(nullptr),
-      m_dashboardTempSeries(nullptr),
-      m_dashboardHumiSeries(nullptr),
-      m_dashboardPmSeries(nullptr),
+      m_axisY_Current(nullptr),
+      m_axisY_Flow(nullptr),
       m_historyLineSeries(),
+      m_historyLowerSeries(),
       m_historyChartViews(),
-      m_dashboardAxisX1(nullptr),
-      m_dashboardAxisY1(nullptr),
-      m_dashboardAxisX2(nullptr),
-      m_dashboardAxisY2(nullptr),
+      m_historyCharts(),
+      m_historyAxisXs(),
+      m_historyAxisYs(),
+      m_historyChartCards(),
+      m_historyPowerStatsLabel(nullptr),
+      m_historyWaterStatsLabel(nullptr),
+      m_historyRefreshTimer(nullptr),
       m_timeLabel(nullptr),
       m_cardTempValue(nullptr),
       m_cardHumiValue(nullptr),
@@ -733,52 +117,28 @@ MainWindow::MainWindow(const QString& userName,
       m_totalPowerLabel(nullptr),
       m_totalWaterLabel(nullptr),
       m_realtimeStatusLabel(nullptr),
-      m_realtimeTimestampLabel(nullptr),
       m_windowIconLabel(nullptr),
       m_minimizeButton(nullptr),
       m_maximizeButton(nullptr),
       m_closeButton(nullptr),
-      m_dashboardStep(0),
-      m_chartStep(0),
       m_totalCurrent(0.0),
       m_totalWater(0.0),
       m_totalPower(0.0),
-      m_historyStatsLabel(nullptr),
-      m_historyStatsLeftLabel(nullptr),
-      m_historyStatsRightLabel(nullptr),
-      m_historySummaryLabel(nullptr),
-      m_historyDataSourceLabel(nullptr),
-      m_realtimeSensorTable(nullptr),
       m_alarmInfoTable(nullptr),
-      m_deviceTable(nullptr),
-      m_deviceSearchEdit(nullptr),
-      m_deviceStatusFilterCombo(nullptr),
-      m_deviceTypeFilterCombo(nullptr),
+
       m_remoteDeviceCombo(nullptr),
       m_remoteCommandCombo(nullptr),
-      m_remoteIntervalSpin(nullptr),
       m_logViewer(nullptr),
-      m_remoteControlLogTable(nullptr),
       m_loginTime(QDateTime::currentDateTime()) {
     ui->setupUi(this);
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setAttribute(Qt::WA_DeleteOnClose, true);
-
-    m_devices = {
-        {"TEMP-001", QStringLiteral("北区温度传感器"), QStringLiteral("温度传感器"), QStringLiteral("A区机房"), "运行中", 93, "v1.2.0", true, 5, 26.0, "℃", 35.0, 0.0, true, true, false},
-        {"HUMI-002", QStringLiteral("仓储区湿度传感器"), QStringLiteral("湿度传感器"), QStringLiteral("B区仓储"), "运行中", 88, "v1.1.4", true, 5, 55.0, "%", 75.0, 0.0, false, true, false},
-        {"FLOW-003", QStringLiteral("管网主线流量计"), QStringLiteral("水流传感器"), QStringLiteral("管网主线"), "运行中", 80, "v1.0.7", true, 5, 2.5, "L/min", 5.0, 0.0, true, false, false},
-        {"CURR-004", QStringLiteral("配电室电流传感器"), QStringLiteral("电流传感器"), QStringLiteral("配电室"), "运行中", 76, "v1.0.9", true, 3, 220.0, "A", 50.0, 0.0, true, false, true},
-        {"AIR-005", QStringLiteral("主通道空气质量传感器"), QStringLiteral("空气质量传感器"), QStringLiteral("主通道"), "运行中", 74, "v1.2.6", true, 5, 38.0, "", 90.0, 0.0, true, true, false},
-        {"PM25-006", QStringLiteral("主通道 PM2.5 传感器"), QStringLiteral("PM2.5 传感器"), QStringLiteral("主通道"), "运行中", 68, "v1.3.1", true, 10, 42.0, "ug/m3", 90.0, 0.0, true, true, false}
-    };
 
     initUi();
     initConnections();
     initMqtt();
     updateTopBarTime();
     refreshHistoryPage();
-    refreshDeviceTable();
 
     // Top bar clock and device status refresh timer.
     m_dataTimer = new QTimer(this);
@@ -786,7 +146,6 @@ MainWindow::MainWindow(const QString& userName,
         m_dataTimer->setInterval(1000);
         connect(m_dataTimer, &QTimer::timeout, this, &MainWindow::updateTopBarTime);
         connect(m_dataTimer, &QTimer::timeout, this, &MainWindow::onUpdateDashboardData);
-        connect(m_dataTimer, &QTimer::timeout, this, &MainWindow::onUpdateWaterPowerData);
         m_dataTimer->start();
     }
 
@@ -799,7 +158,8 @@ MainWindow::MainWindow(const QString& userName,
             qDebug() << "[DB] open failed:" << dbErr;
         } else {
             qDebug() << "[DB] path =" << m_db->databasePath();
-            syncDeviceInfoToDatabase();
+            exportDashboardHistoryData();
+            refreshWaterPowerUsageSummary();
             loadRemoteExecLogTable();
             refreshAlarmInfoFromDatabase();
         }
@@ -824,16 +184,14 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     }
 
     // 历史数据图表：悬停加粗曲线
-    if (event->type() == QEvent::Enter || event->type() == QEvent::Leave) {
-        auto* chartView = qobject_cast<QChartView*>(watched);
-        if (chartView && m_historyChartViews.contains(chartView)) {
-            bool ok = false;
-            int idx = chartView->property("sensorIndex").toInt(&ok);
-            if (ok && idx >= 0 && idx < m_historyLineSeries.size()) {
+    if (m_historyChartViews.contains(static_cast<QChartView*>(watched))) {
+        if (event->type() == QEvent::Enter || event->type() == QEvent::Leave) {
+            const int idx = m_historyChartViews.indexOf(static_cast<QChartView*>(watched));
+            if (idx >= 0 && idx < m_historyLineSeries.size()) {
                 QLineSeries* series = m_historyLineSeries[idx];
-                if (series) {
+                if (series != nullptr) {
                     QPen pen = series->pen();
-                    pen.setWidthF(event->type() == QEvent::Enter ? 8.0 : 5.0);
+                    pen.setWidthF(event->type() == QEvent::Enter ? 3.5 : 2.2);
                     series->setPen(pen);
                 }
             }
@@ -1149,19 +507,21 @@ void MainWindow::updateTitleBarButtons() {
 
 void MainWindow::initMqtt() {
     const QString key = QStringLiteral("6525cbc01d2d408eb1b28ca77a134ebc");
-    const QString topic = QStringLiteral("test001up");
-    const QString helpTopic = QStringLiteral("WebQT1");
+    const QString telemetryTopic = QString::fromLatin1(kMqttTelemetryTopic);
+    const QString commandTopic = QString::fromLatin1(kMqttCommandTopic);
+    const QString helpTopic = QString::fromLatin1(kMqttHelpTopic);
 
-    connect(&m_mqtt, &Mqtt::stateChanged, this, [this, topic, helpTopic](int state) {
+    connect(&m_mqtt, &Mqtt::stateChanged, this, [this, telemetryTopic, commandTopic, helpTopic](int state) {
         if (state == 2) {  // QMqttClient::Connected
             m_useMqttRealtime = true;
-            m_mqtt.subscribeTopic(topic);
+            m_mqtt.subscribeTopic(telemetryTopic);
+            m_mqtt.subscribeTopic(commandTopic);
             m_mqtt.subscribeTopic(helpTopic);
             if (m_realtimeStatusLabel != nullptr) {
                 m_realtimeStatusLabel->setText("系统运行状态：MQTT 已连接");
                 m_realtimeStatusLabel->setStyleSheet("QLabel{color:#059669;font-size:14px;font-weight:700;}");
             }
-            qDebug() << "MQTT 已订阅主题:" << topic << helpTopic;
+            qDebug() << "MQTT 已订阅主题:" << telemetryTopic << commandTopic << helpTopic;
         } else {
             m_useMqttRealtime = false;
             if (m_realtimeStatusLabel != nullptr) {
@@ -1172,7 +532,11 @@ void MainWindow::initMqtt() {
     });
 
     connect(&m_mqtt, &Mqtt::textMessageReceived, this,
-            [this](const QString&, const QString& payload) {
+            [this, telemetryTopic](const QString& topic, const QString& payload) {
+                if (topic != telemetryTopic) {
+                    return;
+                }
+
                 QJsonParseError parseError;
                 const QJsonDocument doc = QJsonDocument::fromJson(payload.toUtf8(), &parseError);
                 if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
@@ -1180,7 +544,8 @@ void MainWindow::initMqtt() {
                     return;
                 }
 
-                const QJsonObject obj = doc.object();
+                const QJsonObject wrappedObj = doc.object();
+                const QJsonObject obj = unwrapWrappedPayload(wrappedObj, QStringLiteral("telemetry"));
                 double temp = -1.0, humi = -1.0, pm25 = -1.0, airRaw = -1.0;
                 double flow = -1.0, current = -1.0;
                 double bp = -1.0, wp = -1.0;
@@ -1282,23 +647,50 @@ void MainWindow::initMqtt() {
                                       batRemainMAh, wtrRemainCL, powerStatus,
                                       batCapMAh, tankCapCL,
                                       batRemainMin, wtrRemainMin);
+
+                    if (m_db != nullptr) {
+                        QString dbErr;
+                        if (!m_db->updateDailyResourceUsage(QDateTime::currentDateTime(),
+                                                            usedPowerMAh,
+                                                            usedWaterCL,
+                                                            &dbErr)) {
+                            qDebug() << "[DB] update daily resource usage failed:" << dbErr;
+                        } else {
+                            const QDateTime now = QDateTime::currentDateTime();
+                            if (!m_lastDashboardHistoryExportAt.isValid()
+                                || m_lastDashboardHistoryExportAt.secsTo(now) >= kDashboardHistoryExportIntervalSec) {
+                                exportDashboardHistoryData();
+                                m_lastDashboardHistoryExportAt = now;
+                            }
+                            refreshWaterPowerUsageSummary();
+                        }
+                    }
                 }
 
-                if (m_tempSeries != nullptr && m_humiSeries != nullptr && m_pmSeries != nullptr && m_axisX != nullptr) {
+                if (m_currentSeries != nullptr && m_flowSeries != nullptr && m_axisX != nullptr) {
                     qreal t = QDateTime::currentMSecsSinceEpoch();
-                    m_tempSeries->append(t, temp);
-                    m_humiSeries->append(t, humi);
-                    m_pmSeries->append(t, pm25);
+                    m_currentSeries->append(t, current);
+                    m_flowSeries->append(t, flow);
 
                     const int maxPoints = 20;
-                    if (m_tempSeries->count() > maxPoints) {
-                        m_tempSeries->removePoints(0, m_tempSeries->count() - maxPoints);
-                        m_humiSeries->removePoints(0, m_humiSeries->count() - maxPoints);
-                        m_pmSeries->removePoints(0, m_pmSeries->count() - maxPoints);
+                    if (m_currentSeries->count() > maxPoints) {
+                        m_currentSeries->removePoints(0, m_currentSeries->count() - maxPoints);
+                        m_flowSeries->removePoints(0, m_flowSeries->count() - maxPoints);
                     }
 
-                    if (m_tempSeries->count() >= 2) {
-                        auto pts = m_tempSeries->points();
+                    // 动态调整Y轴范围
+                    double curMax = 0, flowMax = 0;
+                    for (const auto& pt : m_currentSeries->points())
+                        curMax = qMax(curMax, pt.y());
+                    for (const auto& pt : m_flowSeries->points())
+                        flowMax = qMax(flowMax, pt.y());
+                    if (curMax < 100) curMax = 100;
+                    if (flowMax < 1) flowMax = 1;
+                    m_axisY_Current->setRange(0, curMax * 1.3);
+                    m_axisY_Flow->setRange(0, flowMax * 1.3);
+
+                    if (m_currentSeries->count() >= 2) {
+                        auto pts = m_currentSeries->points();
                         m_axisX->setRange(QDateTime::fromMSecsSinceEpoch((qint64)pts.first().x()),
                                            QDateTime::fromMSecsSinceEpoch((qint64)pts.last().x()));
                     }
@@ -1316,7 +708,8 @@ void MainWindow::initMqtt() {
                     return;
                 }
 
-                const QJsonObject obj = doc.object();
+                const QJsonObject wrappedObj = doc.object();
+                const QJsonObject obj = unwrapWrappedPayload(wrappedObj, QStringLiteral("help"));
                 const QString type = obj.value("type").toString();
                 const QString label = obj.value("label").toString();
                 const QString site = obj.value("site").toString();
@@ -1422,1168 +815,6 @@ void MainWindow::initMqtt() {
     m_mqtt.connectWithKey(QStringLiteral("bemfa.com"), 9501, key);
 }
 
-void MainWindow::initEnvironmentChart() {
-}
-
-void MainWindow::buildMainPages() {
-    buildRealtimePage();
-    buildWaterPowerPage();
-    buildHistoryPage();
-    buildAlarmPage();
-    buildDevicePage();
-    buildSettingsPage();
-}
-
-void MainWindow::buildRealtimePage() {
-    auto* rootLayout = ui->verticalLayoutDashboard;
-    clearLayout(rootLayout);
-    rootLayout->setSpacing(14);
-
-    auto* headerCard = createPanelCard(ui->pageDashboard);
-    auto* headerLayout = new QHBoxLayout(headerCard);
-    headerLayout->setContentsMargins(20, 16, 20, 16);
-
-    auto* titleWrap = new QVBoxLayout();
-    auto* titleLabel = new QLabel("实时监控", headerCard);
-    titleLabel->setStyleSheet("QLabel{font-size:24px;font-weight:800;color:#7dd3fc;}");
-    auto* subLabel = new QLabel("集中查看关键指标实时数据与曲线。", headerCard);
-    subLabel->setStyleSheet("QLabel{color:#bfdcff;font-size:13px;}");
-    titleWrap->addWidget(titleLabel);
-    titleWrap->addWidget(subLabel);
-
-    auto* rightWrap = new QVBoxLayout();
-    m_realtimeStatusLabel = new QLabel("系统运行状态：正常", headerCard);
-    m_realtimeStatusLabel->setStyleSheet("QLabel{color:#059669;font-size:14px;font-weight:700;}");
-    rightWrap->addWidget(m_realtimeStatusLabel, 0, Qt::AlignRight);
-
-    headerLayout->addLayout(titleWrap);
-    headerLayout->addStretch();
-    headerLayout->addLayout(rightWrap);
-    rootLayout->addWidget(headerCard);
-
-    auto createCard = [&](const QString& title, QLabel*& valueLabel, QLabel*& dotLabel, QLabel*& stateLabel) -> QFrame* {
-        auto* card = new QFrame(ui->pageDashboard);
-        card->setObjectName("statusCard");
-        applyShadow(card);
-        auto* layout = new QVBoxLayout(card);
-        layout->setContentsMargins(16, 14, 16, 14);
-        layout->setSpacing(8);
-
-        auto* titleLabelLocal = new QLabel(title, card);
-        titleLabelLocal->setStyleSheet("QLabel{color:#9cc7ff;font-size:13px;font-weight:600;}");
-        valueLabel = new QLabel("--", card);
-        valueLabel->setStyleSheet("QLabel{color:#f8fbff;font-size:28px;font-weight:800;}");
-        dotLabel = new QLabel(card);
-        dotLabel->setFixedSize(12, 12);
-        dotLabel->setStyleSheet("QLabel{background:#22c55e;border-radius:6px;}");
-        stateLabel = new QLabel("正常", card);
-        stateLabel->setStyleSheet("QLabel{color:#22c55e;font-size:12px;font-weight:600;}");
-        auto* stateRow = new QHBoxLayout();
-        stateRow->addWidget(dotLabel);
-        stateRow->addWidget(stateLabel);
-        stateRow->addStretch();
-
-        layout->addWidget(titleLabelLocal);
-        layout->addWidget(valueLabel);
-        layout->addLayout(stateRow);
-        return card;
-    };
-
-    auto* grid = new QGridLayout();
-    grid->setHorizontalSpacing(12);
-    grid->setVerticalSpacing(12);
-    grid->addWidget(createCard("温度", m_cardTempValue, m_dotTemp, m_stateTempLabel), 0, 0);
-    grid->addWidget(createCard("湿度", m_cardHumiValue, m_dotHumi, m_stateHumiLabel), 0, 1);
-    // 将「水流/电流/PM2.5」三项在网格中换换位
-    grid->addWidget(createCard("水流", m_cardFlowValue, m_dotFlow, m_stateFlowLabel), 0, 2);
-    grid->addWidget(createCard("空气指数", m_cardAirValue, m_dotAir, m_stateAirLabel), 1, 1);
-    grid->addWidget(createCard("PM2.5", m_cardPmValue, m_dotPm, m_statePmLabel), 1, 0);
-    grid->addWidget(createCard("电流", m_cardCurrentValue, m_dotCurrent, m_stateCurrentLabel), 1, 2);
-    rootLayout->addLayout(grid);
-
-    // 实时曲线：温度 / 湿度 / PM2.5
-    m_tempSeries = new QLineSeries(this);
-    m_humiSeries = new QLineSeries(this);
-    m_pmSeries = new QLineSeries(this);
-
-    auto* chart = new QChart();
-    chart->setBackgroundVisible(false);
-    chart->setPlotAreaBackgroundVisible(true);
-    chart->setPlotAreaBackgroundBrush(QColor(8, 27, 58, 210));
-    chart->legend()->setVisible(false);  // 不显示图例
-    chart->addSeries(m_tempSeries);
-    chart->addSeries(m_humiSeries);
-    chart->addSeries(m_pmSeries);
-
-    m_tempSeries->setColor(QColor(248, 113, 113));
-    m_humiSeries->setColor(QColor(56, 189, 248));
-    m_pmSeries->setColor(QColor(251, 191, 36));
-
-    // X轴改为时间
-    m_axisX = new QDateTimeAxis(this);
-    m_axisX->setFormat("HH:mm:ss");
-    m_axisX->setLabelsColor(QColor(0xdb, 0xea, 0xfe));
-    m_axisX->setGridLineColor(QColor(125, 211, 252, 35));
-    m_axisX->setLinePenColor(QColor(0x60, 0xa5, 0xfa));
-    chart->addAxis(m_axisX, Qt::AlignBottom);
-    m_tempSeries->attachAxis(m_axisX);
-    m_humiSeries->attachAxis(m_axisX);
-    m_pmSeries->attachAxis(m_axisX);
-
-    m_axisY = new QValueAxis(this);
-    m_axisY->setRange(0, 100);
-    m_axisY->setLabelsColor(QColor(0xdb, 0xea, 0xfe));
-    m_axisY->setGridLineColor(QColor(125, 211, 252, 35));
-    m_axisY->setLinePenColor(QColor(0x60, 0xa5, 0xfa));
-    chart->addAxis(m_axisY, Qt::AlignLeft);
-    m_tempSeries->attachAxis(m_axisY);
-    m_humiSeries->attachAxis(m_axisY);
-    m_pmSeries->attachAxis(m_axisY);
-
-    auto* chartCard = createPanelCard(ui->pageDashboard);
-    auto* chartLayout = new QVBoxLayout(chartCard);
-    chartLayout->setContentsMargins(12, 12, 12, 12);
-
-    // 折线图上方说明标签
-    auto* legendRow = new QHBoxLayout();
-    auto makeDot = [&](const QString& text, const QColor& color) {
-        auto* row = new QHBoxLayout();
-        auto* dot = new QLabel(chartCard);
-        dot->setFixedSize(10, 10);
-        dot->setStyleSheet(QString("QLabel{background:%1;border-radius:5px;}").arg(color.name()));
-        auto* lbl = new QLabel(text, chartCard);
-        lbl->setStyleSheet("QLabel{color:#cbd5e1;font-size:12px;}");
-        row->addWidget(dot);
-        row->addWidget(lbl);
-        return row;
-    };
-    legendRow->addStretch();
-    legendRow->addLayout(makeDot(QStringLiteral("温度(℃)"), QColor(248,113,113)));
-    legendRow->addSpacing(16);
-    legendRow->addLayout(makeDot(QStringLiteral("湿度(%)"), QColor(56,189,248)));
-    legendRow->addSpacing(16);
-    legendRow->addLayout(makeDot(QStringLiteral("PM2.5(μg/m³)"), QColor(251,191,36)));
-    legendRow->addStretch();
-    chartLayout->addLayout(legendRow);
-
-    auto* chartView = new QChartView(chart, chartCard);
-    chartView->setRenderHint(QPainter::Antialiasing, true);
-    chartView->setStyleSheet("background:transparent;border:none;");
-    chartLayout->addWidget(chartView);
-    rootLayout->addWidget(chartCard, 1);
-
-    auto* totalCard = createPanelCard(ui->pageDashboard);
-    auto* totalLayout = new QHBoxLayout(totalCard);
-    totalLayout->setContentsMargins(18, 14, 18, 14);
-    auto* powerTitle = new QLabel("系统累计能耗", totalCard);
-    powerTitle->setStyleSheet("QLabel{color:#9cc7ff;font-size:13px;font-weight:600;}");
-    m_totalPowerLabel = new QLabel("0.000 kWh", totalCard);
-    m_totalPowerLabel->setStyleSheet("QLabel{font-size:26px;font-weight:800;color:#f8fbff;}");
-    auto* currentTitle = new QLabel("累计电流", totalCard);
-    currentTitle->setStyleSheet("QLabel{color:#9cc7ff;font-size:13px;font-weight:600;}");
-    m_totalCurrentLabel = new QLabel("0.000 Ah", totalCard);
-    m_totalCurrentLabel->setStyleSheet("QLabel{font-size:26px;font-weight:800;color:#f8fbff;}");
-    auto* waterTitle = new QLabel("总流量", totalCard);
-    waterTitle->setStyleSheet("QLabel{color:#9cc7ff;font-size:13px;font-weight:600;}");
-    m_totalWaterLabel = new QLabel("0.0 L", totalCard);
-    m_totalWaterLabel->setStyleSheet("QLabel{font-size:26px;font-weight:800;color:#f8fbff;}");
-    auto* leftCol = new QVBoxLayout();
-    leftCol->addWidget(powerTitle);
-    leftCol->addWidget(m_totalPowerLabel);
-    auto* centerCol = new QVBoxLayout();
-    centerCol->addWidget(currentTitle);
-    centerCol->addWidget(m_totalCurrentLabel);
-    auto* rightCol = new QVBoxLayout();
-    rightCol->addWidget(waterTitle);
-    rightCol->addWidget(m_totalWaterLabel);
-    totalLayout->addLayout(leftCol);
-    totalLayout->addStretch();
-    totalLayout->addLayout(centerCol);
-    totalLayout->addStretch();
-    totalLayout->addLayout(rightCol);
-    rootLayout->addWidget(totalCard);
-}
-
-void MainWindow::buildWaterPowerPage() {
-    auto* rootLayout = ui->verticalLayoutRemote;
-    clearLayout(rootLayout);
-    rootLayout->setSpacing(14);
-
-    // ===== 页头卡片（标题+副标题） =====
-    {
-        auto* headerCard = createPanelCard(ui->pageRemote);
-        auto* headerLayout = new QHBoxLayout(headerCard);
-        headerLayout->setContentsMargins(20, 16, 20, 16);
-
-        auto* titleWrap = new QVBoxLayout();
-        auto* titleLabel = new QLabel(QStringLiteral("水电数据"), headerCard);
-        titleLabel->setStyleSheet("QLabel{color:#f8fbff;font-size:20px;font-weight:800;}");
-        auto* subtitleLabel = new QLabel(QStringLiteral("实时监控电力与水资源状态，掌握消耗趋势"), headerCard);
-        subtitleLabel->setStyleSheet("QLabel{color:#94a3b8;font-size:12px;margin-top:2px;}");
-        titleWrap->addWidget(titleLabel);
-        titleWrap->addWidget(subtitleLabel);
-        headerLayout->addLayout(titleWrap);
-        headerLayout->addStretch();
-        rootLayout->addWidget(headerCard);
-    }
-
-    // ===== 水电剩余资源卡片（左电右水，宽松排列） =====
-    {
-        auto* resCard = createPanelCard(ui->pageRemote);
-        auto* resLayout = new QVBoxLayout(resCard);
-        resLayout->setContentsMargins(24, 16, 24, 16);
-        resLayout->setSpacing(14);
-
-        auto* resTitle = new QLabel(QStringLiteral("水电剩余资源"), resCard);
-        resTitle->setStyleSheet("QLabel{color:#7dd3fc;font-size:15px;font-weight:700;}");
-        resLayout->addWidget(resTitle);
-
-        // 主布局：左右两栏
-        auto* mainRow = new QHBoxLayout();
-        mainRow->setSpacing(30);
-
-        // ---- 左栏：电量（图标在左，信息在右） ----
-        {
-            auto* leftSide = new QHBoxLayout();
-            leftSide->setSpacing(14);
-
-            // 左侧：电池图标
-            auto* gaugeCol = new QVBoxLayout();
-            auto* elecDot = new QLabel(resCard);
-            elecDot->setFixedSize(10, 10);
-            elecDot->setStyleSheet("QLabel{background:#22c55e;border-radius:5px;}");
-            auto* elecLabel = new QLabel(QStringLiteral("电力"), resCard);
-            elecLabel->setStyleSheet("QLabel{color:#bfdcff;font-size:12px;font-weight:700;}");
-            auto* elecHeader = new QHBoxLayout();
-            elecHeader->addWidget(elecDot);
-            elecHeader->addWidget(elecLabel);
-            elecHeader->addStretch();
-            gaugeCol->addLayout(elecHeader);
-            m_batteryGauge = new BatteryGauge(resCard);
-            gaugeCol->addWidget(m_batteryGauge, 0, Qt::AlignCenter);
-            leftSide->addLayout(gaugeCol);
-
-            // 右侧：信息文字
-            m_batteryInfoLabel = new QLabel(resCard);
-            m_batteryInfoLabel->setStyleSheet("QLabel{color:#cbd5e1;font-size:12px;line-height:1.6;}");
-            m_batteryInfoLabel->setWordWrap(true);
-            m_batteryInfoLabel->setMinimumWidth(130);
-            leftSide->addWidget(m_batteryInfoLabel);
-            leftSide->addStretch();
-
-            mainRow->addLayout(leftSide);
-        }
-
-        // 分隔线
-        auto* sep = new QFrame(resCard);
-        sep->setFrameShape(QFrame::VLine);
-        sep->setStyleSheet("QFrame{color:rgba(255,255,255,0.08);}");
-        mainRow->addWidget(sep);
-
-        // ---- 右栏：水量（图标在左，信息在右） ----
-        {
-            auto* rightSide = new QHBoxLayout();
-            rightSide->setSpacing(14);
-
-            // 左侧：水箱图标
-            auto* gaugeCol = new QVBoxLayout();
-            auto* waterDot = new QLabel(resCard);
-            waterDot->setFixedSize(10, 10);
-            waterDot->setStyleSheet("QLabel{background:#3b82f6;border-radius:5px;}");
-            auto* waterLabel = new QLabel(QStringLiteral("供水"), resCard);
-            waterLabel->setStyleSheet("QLabel{color:#bfdcff;font-size:12px;font-weight:700;}");
-            auto* waterHeader = new QHBoxLayout();
-            waterHeader->addWidget(waterDot);
-            waterHeader->addWidget(waterLabel);
-            waterHeader->addStretch();
-            gaugeCol->addLayout(waterHeader);
-            m_tankGauge = new TankGauge(resCard);
-            gaugeCol->addWidget(m_tankGauge, 0, Qt::AlignCenter);
-            rightSide->addLayout(gaugeCol);
-
-            // 右侧：信息文字
-            m_tankInfoLabel = new QLabel(resCard);
-            m_tankInfoLabel->setStyleSheet("QLabel{color:#cbd5e1;font-size:12px;line-height:1.6;}");
-            m_tankInfoLabel->setWordWrap(true);
-            m_tankInfoLabel->setMinimumWidth(130);
-            rightSide->addWidget(m_tankInfoLabel);
-            rightSide->addStretch();
-
-            mainRow->addLayout(rightSide);
-        }
-
-        resLayout->addLayout(mainRow);
-        rootLayout->addWidget(resCard);
-    }
-
-    // ===== 今日消耗 + 实时负载 =====
-    {
-        auto* loadCard = createPanelCard(ui->pageRemote);
-        auto* loadLayout = new QHBoxLayout(loadCard);
-        loadLayout->setContentsMargins(24, 16, 24, 16);
-        loadLayout->setSpacing(20);
-
-        // -- 左：实时负载大字 --
-        auto* loadLeft = new QVBoxLayout();
-        auto* loadTitle = new QLabel(QStringLiteral("实时负载"), loadCard);
-        loadTitle->setStyleSheet("QLabel{color:#94a3b8;font-size:11px;font-weight:600;}");
-        loadLeft->addWidget(loadTitle, 0, Qt::AlignLeft);
-        m_wpLoadValueLabel = new QLabel(QStringLiteral("-- mA"), loadCard);
-        m_wpLoadValueLabel->setStyleSheet("QLabel{color:#22c55e;font-size:42px;font-weight:800;}");
-        loadLeft->addWidget(m_wpLoadValueLabel);
-        m_wpLoadStatusLabel = new QLabel(QStringLiteral("等待数据..."), loadCard);
-        m_wpLoadStatusLabel->setStyleSheet("QLabel{color:#64748b;font-size:12px;}");
-        loadLeft->addWidget(m_wpLoadStatusLabel);
-        loadLayout->addLayout(loadLeft);
-
-        // 分隔线
-        auto* sep = new QFrame(loadCard);
-        sep->setFrameShape(QFrame::VLine);
-        sep->setStyleSheet("QFrame{color:rgba(255,255,255,0.08);}");
-        loadLayout->addWidget(sep);
-
-        // -- 右：今日消耗 --
-        auto* todayRight = new QVBoxLayout();
-        todayRight->setSpacing(10);
-        auto* todayTitle = new QLabel(QStringLiteral("今日已用"), loadCard);
-        todayTitle->setStyleSheet("QLabel{color:#94a3b8;font-size:11px;font-weight:600;}");
-        todayRight->addWidget(todayTitle, 0, Qt::AlignLeft);
-        m_wpTodayPowerLabel = new QLabel(QStringLiteral("用电: -- mAh"), loadCard);
-        m_wpTodayPowerLabel->setStyleSheet("QLabel{color:#fbbf24;font-size:18px;font-weight:700;}");
-        todayRight->addWidget(m_wpTodayPowerLabel);
-        m_wpTodayWaterLabel = new QLabel(QStringLiteral("用水: -- L"), loadCard);
-        m_wpTodayWaterLabel->setStyleSheet("QLabel{color:#60a5fa;font-size:18px;font-weight:700;}");
-        todayRight->addWidget(m_wpTodayWaterLabel);
-        loadLayout->addLayout(todayRight);
-
-        rootLayout->addWidget(loadCard);
-    }
-
-    // ===== 实时电流/水流趋势折线图 =====
-    {
-        auto* chartCard = createPanelCard(ui->pageRemote);
-        auto* chartLayout = new QVBoxLayout(chartCard);
-        chartLayout->setContentsMargins(12, 10, 12, 10);
-
-        auto* chartTitle = new QLabel(QStringLiteral("实时电流 / 水流趋势"), chartCard);
-        chartTitle->setStyleSheet("QLabel{color:#7dd3fc;font-size:15px;font-weight:700;}");
-        chartLayout->addWidget(chartTitle);
-
-        // 电流=红色，水流=绿色
-        m_wpCurrentSeries = new QLineSeries(this);
-        m_wpCurrentSeries->setName(QStringLiteral("电流(A)"));
-        m_wpCurrentSeries->setColor(QColor(239, 68, 68));   // red
-        m_wpFlowSeries = new QLineSeries(this);
-        m_wpFlowSeries->setName(QStringLiteral("水流(L/min)"));
-        m_wpFlowSeries->setColor(QColor(16, 185, 129));     // green
-
-        m_wpChart = new QChart();
-        m_wpChart->setBackgroundVisible(false);
-        m_wpChart->setPlotAreaBackgroundVisible(true);
-        m_wpChart->setPlotAreaBackgroundBrush(QColor(8, 27, 58, 210));
-        m_wpChart->legend()->setVisible(true);
-        m_wpChart->legend()->setLabelColor(QColor(0xdb, 0xea, 0xfe));
-        m_wpChart->addSeries(m_wpCurrentSeries);
-        m_wpChart->addSeries(m_wpFlowSeries);
-
-        // X 轴：时间
-        m_wpAxisX = new QDateTimeAxis(this);
-        m_wpAxisX->setFormat("HH:mm:ss");
-        m_wpAxisX->setLabelsColor(QColor(0x94, 0xa3, 0xb8));
-        m_wpChart->addAxis(m_wpAxisX, Qt::AlignBottom);
-        m_wpCurrentSeries->attachAxis(m_wpAxisX);
-        m_wpFlowSeries->attachAxis(m_wpAxisX);
-
-        // 左 Y 轴：电流 (A) 红色
-        m_wpAxisY_Cur = new QValueAxis(this);
-        m_wpAxisY_Cur->setTitleText(QStringLiteral("电流(A)"));
-        m_wpAxisY_Cur->setLabelsColor(QColor(239, 68, 68));
-        m_wpAxisY_Cur->setTitleBrush(QBrush(QColor(239, 68, 68)));
-        m_wpAxisY_Cur->setRange(0, 15);
-        m_wpChart->addAxis(m_wpAxisY_Cur, Qt::AlignLeft);
-        m_wpCurrentSeries->attachAxis(m_wpAxisY_Cur);
-
-        // 右 Y 轴：水流 (L/min) 绿色
-        m_wpAxisY_Flow = new QValueAxis(this);
-        m_wpAxisY_Flow->setTitleText(QStringLiteral("水流(L/min)"));
-        m_wpAxisY_Flow->setLabelsColor(QColor(16, 185, 129));
-        m_wpAxisY_Flow->setTitleBrush(QBrush(QColor(16, 185, 129)));
-        m_wpAxisY_Flow->setRange(0, 10);
-        m_wpChart->addAxis(m_wpAxisY_Flow, Qt::AlignRight);
-        m_wpFlowSeries->attachAxis(m_wpAxisY_Flow);
-
-        m_wpChartView = new QChartView(m_wpChart, chartCard);
-        m_wpChartView->setRenderHint(QPainter::Antialiasing, true);
-        m_wpChartView->setMinimumHeight(280);
-        m_wpChartView->setStyleSheet("background:transparent;");
-
-        chartLayout->addWidget(m_wpChartView);
-        rootLayout->addWidget(chartCard);
-    }
-}
-
-void MainWindow::buildHistoryPage() {
-    auto* rootLayout = ui->verticalLayoutEnvironment;
-    clearLayout(rootLayout);
-    rootLayout->setSpacing(14);
-
-    // ===== Header =====
-    auto* headerCard = createPanelCard(ui->pageEnvironment);
-    auto* headerLayout = new QHBoxLayout(headerCard);
-    headerLayout->setContentsMargins(20, 16, 20, 16);
-    auto* titleWrap = new QVBoxLayout();
-    auto* titleLabel = new QLabel("历史数据", headerCard);
-    titleLabel->setStyleSheet("QLabel{font-size:24px;font-weight:800;color:#7dd3fc;}");
-    auto* subLabel = new QLabel(
-        "查看趋势分析。选择时间范围与数据类型，点击确认后展示折线图。",
-        headerCard);
-    subLabel->setStyleSheet("QLabel{color:#bfdcff;font-size:13px;}");
-    titleWrap->addWidget(titleLabel);
-    titleWrap->addWidget(subLabel);
-    headerLayout->addLayout(titleWrap);
-    headerLayout->addStretch();
-    auto* exportButton = new QPushButton("导出 Excel", headerCard);
-    exportButton->setStyleSheet(
-        "QPushButton{background:rgba(18,92,178,0.92);color:white;border:1px solid rgba(125,211,252,0.35);"
-        "border-radius:10px;padding:8px 18px;font-weight:700;}"
-        "QPushButton:hover{background:rgba(26,120,226,0.96);}");
-    connect(exportButton, &QPushButton::clicked, this, &MainWindow::onExportHistoryClicked);
-    headerLayout->addWidget(exportButton);
-    rootLayout->addWidget(headerCard);
-
-    // ===== Toolbar: 时间范围 + 数据类型 =====
-    auto* toolCard = createPanelCard(ui->pageEnvironment);
-    auto* toolLayout = new QVBoxLayout(toolCard);
-    toolLayout->setContentsMargins(16, 10, 16, 10);
-    toolLayout->setSpacing(8);
-
-    const QString confirmStyle =
-        "QPushButton{background:#0f5fa8;color:white;border:1px solid #2f7fca;"
-        "border-radius:8px;padding:6px 24px;font-size:13px;font-weight:700;}"
-        "QPushButton:hover{background:#1a7ad4;}";
-    const QString cbStyle =
-        "QCheckBox{color:#dbeafe;font-size:13px;spacing:4px;}"
-        "QCheckBox::indicator{width:16px;height:16px;border:2px solid #5a7ba8;border-radius:3px;background:transparent;}"
-        "QCheckBox::indicator:checked{background:#0f5fa8;border-color:#2f7fca;}";
-
-    // 第一行：起始时间 ~ 结束时间 + 查询
-    auto* topRow = new QHBoxLayout();
-    const QString dtStyle =
-        "QDateTimeEdit{background:rgba(7,26,54,0.88);color:#e8f1ff;border:1px solid rgba(96,165,250,0.45);"
-        "border-radius:8px;padding:6px 10px;font-size:13px;}"
-        "QDateTimeEdit:hover{border-color:rgba(96,165,250,0.7);}"
-        "QDateTimeEdit:focus{border-color:#38bdf8;}"
-        "QDateTimeEdit::up-button{width:16px;}"
-        "QDateTimeEdit::down-button{width:16px;}";
-
-    const QDateTime now = QDateTime::currentDateTime();
-
-    auto* startLabel = new QLabel("起始：", toolCard);
-    startLabel->setStyleSheet("QLabel{color:#bfdcff;font-size:13px;font-weight:600;}");
-    auto* startEdit = new QDateTimeEdit(now.addDays(-1), toolCard);
-    startEdit->setDisplayFormat("yyyy-MM-dd HH:mm:ss");
-    startEdit->setMaximumDateTime(now);
-    startEdit->setStyleSheet(dtStyle);
-    startEdit->setObjectName("historyStartTime");
-
-    auto* endLabel = new QLabel("结束：", toolCard);
-    endLabel->setStyleSheet("QLabel{color:#bfdcff;font-size:13px;font-weight:600;}");
-    auto* endEdit = new QDateTimeEdit(now, toolCard);
-    endEdit->setDisplayFormat("yyyy-MM-dd HH:mm:ss");
-    endEdit->setMaximumDateTime(now);
-    endEdit->setStyleSheet(dtStyle);
-    endEdit->setObjectName("historyEndTime");
-
-    m_historyConfirmBtn = new QPushButton("查询", toolCard);
-    m_historyConfirmBtn->setStyleSheet(confirmStyle);
-
-    topRow->addWidget(startLabel);
-    topRow->addWidget(startEdit);
-    topRow->addSpacing(8);
-    topRow->addWidget(endLabel);
-    topRow->addWidget(endEdit);
-    topRow->addSpacing(12);
-    topRow->addWidget(m_historyConfirmBtn);
-    topRow->addStretch();
-    toolLayout->addLayout(topRow);
-
-    // 第二行：数据类型 checkboxes
-    auto* sensorRow = new QHBoxLayout();
-    auto* sensorLabel = new QLabel("数据类型：", toolCard);
-    sensorLabel->setStyleSheet("QLabel{color:#bfdcff;font-size:13px;font-weight:600;}");
-    sensorRow->addWidget(sensorLabel);
-
-    const QStringList sensorNames = {"温度", "湿度", "PM2.5", "空气指数", "电流", "水流"};
-    m_historySensorCheckBoxes.clear();
-    for (int i = 0; i < sensorNames.size(); ++i) {
-        auto* cb = new QCheckBox(sensorNames[i], toolCard);
-        cb->setChecked(true);
-        cb->setStyleSheet(cbStyle);
-        sensorRow->addWidget(cb);
-        m_historySensorCheckBoxes.append(cb);
-    }
-    sensorRow->addStretch();
-    toolLayout->addLayout(sensorRow);
-
-    rootLayout->addWidget(toolCard);
-
-    // ===== 折线图容器（动态网格）=====
-    m_historyChartContainer = new QWidget(ui->pageEnvironment);
-    m_historyChartContainer->setStyleSheet("background:transparent;");
-    m_historyGridLayout = new QGridLayout(m_historyChartContainer);
-    m_historyGridLayout->setSpacing(10);
-    m_historyGridLayout->setContentsMargins(0, 0, 0, 0);
-
-    const QList<QColor> colors = {
-        QColor(248, 113, 113),  // 温度 珊瑚红
-        QColor(251, 191, 36),   // 湿度 琥珀
-        QColor(251, 146, 60),   // PM2.5 橙
-        QColor(163, 230, 53),   // 空气指数 青柠
-        QColor(196, 132, 252),  // 电流 浅紫
-        QColor(244, 114, 182)   // 水流 粉红
-    };
-    const QStringList yTitles = {"温度 (℃)", "湿度 (%)", "PM2.5 (μg/m³)", "空气指数", "电流 (A)", "水流 (L/min)"};
-
-    const QString chartCardStyle =
-        "QFrame{background:rgba(8,27,58,0.5);border:1px solid rgba(96,165,250,0.2);"
-        "border-radius:8px;}";
-
-    for (int i = 0; i < 6; ++i) {
-        // 先建对象，再入图，最后设属性填数据
-        auto* upper = new QLineSeries(this);
-        auto* lower = new QLineSeries(this);
-        auto* area  = new QAreaSeries(upper, lower);
-
-        auto* chart = new QChart();
-        chart->setTitle(sensorNames[i]);
-        chart->setTitleBrush(QBrush(QColor(0xe8, 0xf1, 0xff)));
-        chart->setBackgroundVisible(false);
-        chart->setPlotAreaBackgroundVisible(true);
-        chart->setPlotAreaBackgroundBrush(QColor(8, 27, 58, 210));
-        chart->legend()->setVisible(false);
-        chart->setMargins(QMargins(6, 8, 6, 4));
-        chart->setAnimationOptions(QChart::SeriesAnimations);
-
-        // series 入图后再设属性
-        chart->addSeries(area);
-        m_historyLineSeries.append(upper);
-        m_historyLowerSeries.append(lower);
-        upper->setPen(QPen(QBrush(colors[i]), 5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        upper->setPointsVisible(false);
-        lower->setPen(QPen(Qt::transparent));
-        area->setBorderColor(Qt::transparent);
-        QColor areaColor = colors[i];
-        areaColor.setAlpha(58);
-        area->setColor(areaColor);
-        area->setBrush(QBrush(areaColor));
-
-        lower->append(0, 0);
-        lower->append(1, 0);
-
-        auto* axisX = new QDateTimeAxis();
-        axisX->setFormat("HH:mm");
-        axisX->setLabelsColor(QColor(0x9a, 0xba, 0xda));
-        axisX->setGridLineColor(QColor(255, 255, 255, 14));
-        axisX->setGridLineVisible(true);
-        axisX->setTickCount(4);
-        axisX->setLabelsFont(QFont("sans", 8));
-        chart->addAxis(axisX, Qt::AlignBottom);
-        area->attachAxis(axisX);
-        upper->attachAxis(axisX);
-
-        auto* axisY = new QValueAxis();
-        axisY->setLabelsColor(QColor(0x9a, 0xba, 0xda));
-        axisY->setGridLineColor(QColor(255, 255, 255, 14));
-        axisY->setTitleText(yTitles[i]);
-        axisY->setTitleBrush(QBrush(QColor(0xbf, 0xdb, 0xfe)));
-        axisY->setLabelFormat("%.1f");
-        axisY->setLabelsFont(QFont("sans", 8));
-        chart->addAxis(axisY, Qt::AlignLeft);
-        area->attachAxis(axisY);
-        upper->attachAxis(axisY);
-
-        auto* chartView = new QChartView(chart);
-        chartView->setRenderHint(QPainter::Antialiasing, true);
-        chartView->setStyleSheet("background:transparent;border:none;");
-        chartView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        chartView->setMouseTracking(true);
-        chartView->setAttribute(Qt::WA_Hover, true);
-        chartView->installEventFilter(this);
-
-        auto* card = new QFrame(m_historyChartContainer);
-        card->setStyleSheet(chartCardStyle);
-        auto* cardLay = new QVBoxLayout(card);
-        cardLay->setContentsMargins(6, 4, 6, 4);
-        cardLay->addWidget(chartView);
-        m_historyChartViews.append(chartView);
-        chartView->setProperty("sensorIndex", i);
-    }
-
-    rootLayout->addWidget(m_historyChartContainer, 1);
-
-    // ===== 统计信息 + 趋势摘要 =====
-    auto* infoRow = new QHBoxLayout();
-    infoRow->setSpacing(16);
-
-    auto* statsCard = createPanelCard(ui->pageEnvironment);
-    auto* statsLayout = new QVBoxLayout(statsCard);
-    statsLayout->setContentsMargins(18, 16, 18, 16);
-    auto* statsTitle = new QLabel("统计信息", statsCard);
-    statsTitle->setStyleSheet("QLabel{font-size:16px;font-weight:700;color:#7dd3fc;}");
-    m_historyStatsLabel = new QLabel("--", statsCard);
-    m_historyStatsLabel->setWordWrap(true);
-    m_historyStatsLabel->setVisible(false);
-    m_historyStatsLabel->setStyleSheet("QLabel{color:#e8f1ff;line-height:1.6;}");
-
-    auto* statsColumns = new QHBoxLayout();
-    statsColumns->setContentsMargins(0, 8, 0, 0);
-    statsColumns->setSpacing(18);
-
-    m_historyStatsLeftLabel = new QLabel("--", statsCard);
-    m_historyStatsLeftLabel->setWordWrap(true);
-    m_historyStatsLeftLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    m_historyStatsLeftLabel->setStyleSheet("QLabel{color:#e8f1ff;line-height:1.6;}");
-
-    m_historyStatsRightLabel = new QLabel("--", statsCard);
-    m_historyStatsRightLabel->setWordWrap(true);
-    m_historyStatsRightLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    m_historyStatsRightLabel->setStyleSheet("QLabel{color:#e8f1ff;line-height:1.6;}");
-
-    statsColumns->addWidget(m_historyStatsLeftLabel, 1);
-    statsColumns->addWidget(m_historyStatsRightLabel, 1);
-    statsLayout->addLayout(statsColumns);
-
-    auto* summaryCard = createPanelCard(ui->pageEnvironment);
-    auto* summaryLayout = new QVBoxLayout(summaryCard);
-    summaryLayout->setContentsMargins(18, 16, 18, 16);
-    auto* summaryTitle = new QLabel("趋势摘要", summaryCard);
-    summaryTitle->setStyleSheet("QLabel{font-size:16px;font-weight:700;color:#7dd3fc;}");
-    m_historySummaryLabel = new QLabel("--", summaryCard);
-    m_historySummaryLabel->setWordWrap(true);
-    m_historySummaryLabel->setStyleSheet("QLabel{color:#e8f1ff;line-height:1.7;}");
-    summaryLayout->addWidget(summaryTitle);
-    summaryLayout->addWidget(m_historySummaryLabel);
-
-    infoRow->addWidget(statsCard, 1);
-    infoRow->addWidget(summaryCard, 1);
-    rootLayout->addLayout(infoRow);
-
-    // ===== 连接信号 =====
-    connect(m_historyConfirmBtn, &QPushButton::clicked, this, [this]() {
-        refreshHistoryPage();
-    });
-
-    // 初始加载
-    refreshHistoryPage();
-}
-
-void MainWindow::buildAlarmPage() {
-    auto* rootLayout = ui->verticalLayoutAlarm;
-    clearLayout(rootLayout);
-    rootLayout->setSpacing(14);
-
-    auto* headerCard = createPanelCard(ui->pageAlarm);
-    auto* headerLayout = new QHBoxLayout(headerCard);
-    headerLayout->setContentsMargins(20, 16, 20, 16);
-
-    auto* titleWrap = new QVBoxLayout();
-    auto* titleLabel = new QLabel("报警管理", headerCard);
-    titleLabel->setStyleSheet("QLabel{font-size:24px;font-weight:800;color:#7dd3fc;}");
-    auto* subLabel = new QLabel(
-        "查看与管理历史报警记录，支持按级别筛选。",
-        headerCard);
-    subLabel->setStyleSheet("QLabel{color:#bfdcff;font-size:13px;}");
-    titleWrap->addWidget(titleLabel);
-    titleWrap->addWidget(subLabel);
-
-    headerLayout->addLayout(titleWrap);
-    headerLayout->addStretch();
-    rootLayout->addWidget(headerCard);
-
-    // ===== 统计概览卡片 =====
-    auto* statsCard = createPanelCard(ui->pageAlarm);
-    auto* statsLayout = new QHBoxLayout(statsCard);
-    statsLayout->setContentsMargins(20, 14, 20, 14);
-    statsLayout->setSpacing(24);
-
-    auto makeStat = [&](const QString& label, const QString& color, const QString& objName) {
-        auto* wrap = new QWidget(statsCard);
-        wrap->setStyleSheet("background:transparent;");
-        auto* lay = new QVBoxLayout(wrap);
-        lay->setContentsMargins(0, 0, 0, 0);
-        lay->setSpacing(4);
-        auto* val = new QLabel("0", wrap);
-        val->setStyleSheet(QString("QLabel{font-size:28px;font-weight:800;color:%1;}").arg(color));
-        val->setAlignment(Qt::AlignCenter);
-        val->setObjectName(objName);
-        auto* lbl = new QLabel(label, wrap);
-        lbl->setStyleSheet("QLabel{color:#94a3b8;font-size:12px;}");
-        lbl->setAlignment(Qt::AlignCenter);
-        lay->addWidget(val);
-        lay->addWidget(lbl);
-        statsLayout->addWidget(wrap);
-    };
-
-    makeStat("今日报警", "#f8fbff", "alarmStatTotal");
-    makeStat("严重", "#ef4444", "alarmStatDanger");
-    makeStat("预警", "#f59e0b", "alarmStatWarn");
-    makeStat("求助", "#f59e0b", "alarmStatHelp");
-    makeStat("已解决", "#22c55e", "alarmStatDone");
-    rootLayout->addWidget(statsCard);
-
-    // ===== 筛选栏 =====
-    auto* filterCard = createPanelCard(ui->pageAlarm);
-    auto* filterLayout = new QHBoxLayout(filterCard);
-    filterLayout->setContentsMargins(16, 10, 16, 10);
-    filterLayout->setSpacing(12);
-
-    auto* filterLabel = new QLabel("级别筛选：", filterCard);
-    filterLabel->setStyleSheet("QLabel{color:#bfdcff;font-size:13px;font-weight:600;}");
-    auto* levelFilter = new QComboBox(filterCard);
-    levelFilter->addItems({"全部", "严重", "预警", "求助"});
-    levelFilter->setStyleSheet(
-        "QComboBox{background:rgba(7,26,54,0.88);color:#e8f1ff;border:1px solid rgba(96,165,250,0.45);"
-        "border-radius:8px;padding:6px 12px;font-size:13px;min-width:120px;}"
-        "QComboBox:hover{border-color:rgba(96,165,250,0.7);}"
-        "QComboBox QAbstractItemView{background:#0a1628;color:#e8f1ff;border:1px solid #1e3a5f;"
-        "selection-background-color:#0f5fa8;outline:none;}");
-    levelFilter->setObjectName("alarmLevelFilter");
-    filterLayout->addWidget(filterLabel);
-    filterLayout->addWidget(levelFilter);
-    filterLayout->addStretch();
-    rootLayout->addWidget(filterCard);
-
-    // ===== 报警表格（8列：始/终/传感器/内容/级别/状态/操作）=====
-    m_alarmInfoTable = new QTableWidget(0, 7, ui->pageAlarm);
-    m_alarmInfoTable->setHorizontalHeaderLabels({"起始时间", "结束时间", "传感器", "内容", "级别", "状态", "操作"});
-    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
-    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
-    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
-    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(6, QHeaderView::ResizeToContents);
-    m_alarmInfoTable->verticalHeader()->setVisible(false);
-    m_alarmInfoTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_alarmInfoTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_alarmInfoTable->setAlternatingRowColors(true);
-
-    auto* infoCard = createPanelCard(ui->pageAlarm);
-    auto* infoLayout = new QVBoxLayout(infoCard);
-    infoLayout->setContentsMargins(12, 12, 12, 12);
-    auto* infoTitle = new QLabel("报警记录", infoCard);
-    infoTitle->setStyleSheet("QLabel{font-size:16px;font-weight:700;color:#7dd3fc;}");
-    infoLayout->addWidget(infoTitle);
-    infoLayout->addWidget(m_alarmInfoTable);
-    rootLayout->addWidget(infoCard, 1);
-
-    connect(levelFilter, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this]() { refreshAlarmInfoFromDatabase(); });
-}
-
-void MainWindow::buildDevicePage() {
-    auto* rootLayout = ui->verticalLayoutWP;
-    clearLayout(rootLayout);
-    rootLayout->setSpacing(16);
-
-    // ====== Header ======
-    auto* headerCard = createPanelCard(ui->pageWaterPower);
-    auto* headerLayout = new QVBoxLayout(headerCard);
-    headerLayout->setContentsMargins(24, 18, 24, 14);
-    headerLayout->setSpacing(6);
-    auto* titleLabel = new QLabel("设备管理", headerCard);
-    titleLabel->setStyleSheet("QLabel{font-size:24px;font-weight:800;color:#7dd3fc;}");
-    headerLayout->addWidget(titleLabel);
-    auto* hintLabel = new QLabel("远程设置 STM32 传感器阈值，以及控制蜂鸣器、风扇、窗户、警报灯等执行器的开关。阈值下发后设备立即生效，重启恢复默认。",
-                                headerCard);
-    hintLabel->setWordWrap(true);
-    hintLabel->setStyleSheet("QLabel{color:#94a3b8;font-size:12px;}");
-    headerLayout->addWidget(hintLabel);
-    rootLayout->addWidget(headerCard);
-
-    // ====== 阈值远程设置 ======
-    {
-        auto* thCard = createPanelCard(ui->pageWaterPower);
-        auto* thLayout = new QVBoxLayout(thCard);
-        thLayout->setContentsMargins(20, 16, 20, 16);
-        thLayout->setSpacing(12);
-
-        // 标题行
-        auto* thHeader = new QHBoxLayout();
-        auto* thTitle = new QLabel("⚙ 阈值远程设置", thCard);
-        thTitle->setStyleSheet("QLabel{font-size:20px;font-weight:800;color:#7dd3fc;}");
-        thHeader->addWidget(thTitle);
-        thHeader->addStretch();
-        thLayout->addLayout(thHeader);
-
-        // 阈值：温湿度上下限 + PM/电流/水流/空气质量上限
-        struct ThDef { const char* key; const char* label; const char* unit; int defaultVal; };
-        // Qt只配告警值，下发后STM32自动推导预警值
-        auto* deriveHint = new QLabel(QStringLiteral(
-            "配置告警阈值，STM32自动推算预警值\n"
-            "预警=告警-6℃(温)/-15%(湿)/÷2(PM/AQ/水流)/×2/3(电流)"),
-            thCard);
-        deriveHint->setStyleSheet("QLabel{color:#94a3b8;font-size:11px;}");
-        deriveHint->setWordWrap(true);
-        thLayout->addWidget(deriveHint);
-
-        ThDef thDefs[] = {
-            {"ta", "温度告警上限", "℃", 38},
-            {"tb", "温度告警下限", "℃", 10},
-            {"ha", "湿度告警上限", "%", 85},
-            {"hb", "湿度告警下限", "%", 20},
-            {"pa", "PM2.5告警", "μg/m³", 150},
-            {"aa", "AQ告警", "", 200},
-            {"ca", "电流告警", "A", 15},
-            {"fa", "水流告警", "L/min", 10},
-        };
-        QVector<QSpinBox*> spinPtrs;
-
-        auto* thGrid = new QGridLayout();
-        thGrid->setHorizontalSpacing(20);
-        thGrid->setVerticalSpacing(8);
-
-        auto makeSpin = [&](int val) -> QSpinBox* {
-            auto* s = new QSpinBox(thCard);
-            s->setRange(0, 5000);
-            s->setValue(val);
-            s->setFixedSize(90, 32);
-            s->setAlignment(Qt::AlignCenter);
-            s->setStyleSheet(
-                "QSpinBox{background:#0f1f3a;color:#7dd3fc;border:1px solid #2f7fca;"
-                "border-radius:6px;font-size:14px;font-weight:700;}"
-                "QSpinBox:hover{border-color:#5ba0e8;}"
-                "QSpinBox:focus{border-color:#38bdf8;background:#0a1630;}"
-                "QSpinBox::up-button{width:20px;border-radius:3px;}"
-                "QSpinBox::down-button{width:20px;border-radius:3px;}");
-            return s;
-        };
-
-        for (int i = 0; i < 8; i++) {
-            auto& d = thDefs[i];
-            auto* w = new QWidget(thCard);
-            w->setStyleSheet("background:transparent;");
-            auto* hl = new QHBoxLayout(w);
-            hl->setContentsMargins(0, 0, 0, 0);
-            hl->setSpacing(6);
-            auto* lb = new QLabel(d.label, w);
-            lb->setStyleSheet("QLabel{color:#e8f0ff;font-size:13px;font-weight:600;}");
-            auto* sp = makeSpin(d.defaultVal);
-            spinPtrs.append(sp);
-            auto* un = new QLabel(d.unit, w);
-            un->setStyleSheet("QLabel{color:#7a8fb8;font-size:11px;}");
-            hl->addWidget(lb);
-            hl->addStretch();
-            hl->addWidget(sp);
-            hl->addWidget(un);
-            thGrid->addWidget(w, i / 2, i % 2);  // 2 列布局
-        }
-
-        thLayout->addLayout(thGrid);
-
-        // 按钮行
-        auto* thBtnRow = new QHBoxLayout();
-        thBtnRow->setSpacing(16);
-        auto* thResetBtn = new QPushButton("恢复默认", thCard);
-        thResetBtn->setMinimumHeight(38);
-        thResetBtn->setStyleSheet(
-            "QPushButton{background:#1e293b;color:#94a3b8;border:1px solid #334155;"
-            "border-radius:8px;padding:6px 20px;font-size:13px;font-weight:600;}"
-            "QPushButton:hover{background:#334155;color:#cbd5e1;}");
-        auto* thSendBtn = new QPushButton("一键下发", thCard);
-        thSendBtn->setMinimumHeight(38);
-        thSendBtn->setStyleSheet(
-            "QPushButton{background:#0f5fa8;color:white;border:1px solid #2f7fca;"
-            "border-radius:8px;padding:6px 28px;font-size:14px;font-weight:700;}"
-            "QPushButton:hover{background:#1a7ad4;}"
-            "QPushButton:pressed{background:#0a4a8a;}");
-        thBtnRow->addStretch();
-        thBtnRow->addWidget(thResetBtn);
-        thBtnRow->addWidget(thSendBtn);
-        thBtnRow->addStretch();
-        thLayout->addLayout(thBtnRow);
-
-        connect(thResetBtn, &QPushButton::clicked, this, [this, spinPtrs, thDefs]() {
-            for (int i = 0; i < spinPtrs.size(); i++)
-                spinPtrs[i]->setValue(thDefs[i].defaultVal);
-            // 同时下发恢复默认命令给STM32
-            m_mqtt.publishText("test001up", "{\"cmd\":\"reset_th\"}");
-        });
-
-        connect(thSendBtn, &QPushButton::clicked, this, [this, spinPtrs, thDefs]() {
-            if (!customConfirm(this, "确认下发",
-                    "将阈值下发至 STM32，设备将立即按新阈值运行。\n是否确认？"))
-                return;
-
-            QJsonObject thObj;
-            for (int i = 0; i < spinPtrs.size(); i++)
-                thObj[thDefs[i].key] = spinPtrs[i]->value();
-
-            QJsonObject cmd;
-            cmd["th"] = thObj;
-            m_mqtt.publishText("test001up",
-                QString::fromUtf8(QJsonDocument(cmd).toJson(QJsonDocument::Compact)));
-
-            customMessage(this, "已发送",
-                "阈值指令已通过 MQTT 下发。\nESP32 将自动转发至 STM32。");
-        });
-
-        rootLayout->addWidget(thCard);
-    }
-
-    auto* controlCard = createPanelCard(ui->pageWaterPower);
-    auto* controlLayout = new QVBoxLayout(controlCard);
-    controlLayout->setContentsMargins(16, 16, 16, 16);
-    controlLayout->setSpacing(10);
-    auto* controlTitle = new QLabel("设备控制", controlCard);
-    controlTitle->setStyleSheet("QLabel{font-size:18px;font-weight:800;color:#7dd3fc;}");
-    controlLayout->addWidget(controlTitle);
-
-    auto publishDeviceCode = [this](int code, const QString& name) {
-        const QString topic = QStringLiteral("test001up");
-        QJsonObject cmd;
-        cmd["code"] = code;
-        cmd["name"] = name;
-        m_mqtt.publishText(topic, QString::fromUtf8(QJsonDocument(cmd).toJson(QJsonDocument::Compact)));
-        appendRemoteControlLog("SYSTEM", name, QStringLiteral("已发送到 %1").arg(topic));
-    };
-
-    const QString ctrlBtnNormal =
-        "QPushButton{background:rgba(37,99,235,0.45);color:#e8f1ff;border:1px solid rgba(96,165,250,0.45);"
-        "border-radius:8px;padding:6px 18px;font-weight:600;font-size:13px;}"
-        "QPushButton:hover{background:rgba(59,130,246,0.65);}";
-    const QString ctrlOnActive =
-        "QPushButton{background:#075985;color:#f0f9ff;border:2px solid #38bdf8;border-radius:8px;"
-        "padding:5px 16px;font-weight:800;font-size:13px;}"
-        "QPushButton:hover{background:#0c4a6e;}";
-
-    auto createCodeControlRow = [&](const QString& title,
-                                    const QString& onBtnText,
-                                    const QString& offBtnText,
-                                    int onCode,
-                                    int offCode,
-                                    const QString& onLogName,
-                                    const QString& offLogName) {
-        auto* row = new QHBoxLayout();
-        row->setSpacing(12);
-        auto* label = new QLabel(title, controlCard);
-        label->setMinimumWidth(72);
-        label->setStyleSheet("QLabel{font-size:14px;color:#dbeafe;font-weight:700;}");
-        auto* onButton = new QPushButton(onBtnText, controlCard);
-        auto* offButton = new QPushButton(offBtnText, controlCard);
-        onButton->setMinimumHeight(36);
-        offButton->setMinimumHeight(36);
-        onButton->setStyleSheet(ctrlBtnNormal);
-        offButton->setStyleSheet(ctrlBtnNormal);
-        connect(onButton, &QPushButton::clicked, this, [publishDeviceCode, onCode, onLogName, onButton, ctrlOnActive]() {
-            publishDeviceCode(onCode, onLogName);
-            onButton->setStyleSheet(ctrlOnActive);
-        });
-        connect(offButton, &QPushButton::clicked, this, [publishDeviceCode, offCode, offLogName, onButton, ctrlBtnNormal]() {
-            publishDeviceCode(offCode, offLogName);
-            onButton->setStyleSheet(ctrlBtnNormal);
-        });
-        row->addWidget(label, 0, Qt::AlignLeft | Qt::AlignVCenter);
-        row->addStretch();
-        row->addWidget(onButton, 0, Qt::AlignRight);
-        row->addWidget(offButton, 0, Qt::AlignRight);
-        controlLayout->addLayout(row);
-    };
-
-    createCodeControlRow("警报", "开启", "关闭", 1, 0, "警报开启", "警报关闭");
-    createCodeControlRow("风扇", "开启", "关闭", 4, 5, "风扇开启", "风扇关闭");
-    createCodeControlRow("窗户", "打开", "关闭", 2, 3, "窗户打开", "窗户关闭");
-    createCodeControlRow("警报灯", "开启", "关闭", 6, 7, "警报灯开启", "警报灯关闭");
-    controlLayout->addSpacing(4);
-    rootLayout->addWidget(controlCard);
-
-    m_remoteControlLogTable = nullptr;
-    m_remoteLogMarqueeView = new QPlainTextEdit(ui->pageWaterPower);
-    m_remoteLogMarqueeView->setReadOnly(true);
-    m_remoteLogMarqueeView->setMinimumHeight(200);
-    m_remoteLogMarqueeView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_remoteLogMarqueeView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_remoteLogMarqueeView->setLineWrapMode(QPlainTextEdit::NoWrap);
-    m_remoteLogMarqueeView->setMouseTracking(true);
-    {
-        QFont mono;
-        mono.setStyleHint(QFont::TypeWriter, QFont::PreferQuality);
-        mono.setFixedPitch(true);
-        mono.setPointSize(10);
-        m_remoteLogMarqueeView->setFont(mono);
-    }
-    m_remoteLogMarqueeView->setStyleSheet(
-        "QPlainTextEdit{background:rgba(7,26,54,0.86);border:1px solid rgba(96,165,250,0.30);"
-        "border-bottom-left-radius:8px;border-bottom-right-radius:8px;"
-        "border-top-left-radius:0;border-top-right-radius:0;"
-        "color:#dbeafe;font-size:13px;line-height:1.45;padding:8px 10px;}");
-
-    // ==== 日志缓慢上移滚动 ====
-    auto* logTimer = new QTimer(m_remoteLogMarqueeView);
-    logTimer->setObjectName(QStringLiteral("logScrollTimer"));
-    connect(logTimer, &QTimer::timeout, this, [this]() {
-        if (!m_remoteLogMarqueeView || !m_remoteLogMarqueeView->isVisible())
-            return;
-        QScrollBar* bar = m_remoteLogMarqueeView->verticalScrollBar();
-        if (!bar || bar->maximum() <= 0)
-            return;
-        int val = bar->value() + 1;
-        if (val >= bar->maximum())
-            val = 0;
-        bar->setValue(val);
-    });
-    logTimer->start(150);
-
-    // 鼠标悬停大幅减慢，移出恢复
-    m_remoteLogMarqueeView->installEventFilter(this);
-
-    auto* logCard = createPanelCard(ui->pageWaterPower);
-    auto* logLayout = new QVBoxLayout(logCard);
-    logLayout->setContentsMargins(10, 8, 10, 10);
-    auto* logTitle = new QLabel("远程控制执行日志（最近 20 条）", logCard);
-    logTitle->setStyleSheet("QLabel{font-size:13px;font-weight:600;color:#7dd3fc;}");
-    logLayout->addWidget(logTitle);
-
-    // 表头（固定不滚动）
-    auto* logHeader = new QLabel(logCard);
-    logHeader->setStyleSheet(
-        "QLabel{background:rgba(15,95,168,0.5);border:1px solid rgba(96,165,250,0.30);"
-        "border-bottom:none;border-top-left-radius:8px;border-top-right-radius:8px;"
-        "color:#7dd3fc;font-size:13px;font-weight:700;padding:6px 12px;}");
-    logHeader->setText(formatRemoteLogTableLine(QStringLiteral("时间"),
-                                                QStringLiteral("设备"),
-                                                QStringLiteral("指令"),
-                                                QStringLiteral("详情")));
-    logLayout->addWidget(logHeader);
-    logLayout->addWidget(m_remoteLogMarqueeView);
-    rootLayout->addWidget(logCard, 1);
-
-    m_remoteCommandCombo = nullptr;
-    m_remoteIntervalSpin = nullptr;
-    refreshDeviceTable();
-    loadRemoteExecLogTable();
-}
-
-void MainWindow::buildSettingsPage() {
-    auto* rootLayout = ui->verticalLayoutSetting;
-    clearLayout(rootLayout);
-    rootLayout->setSpacing(14);
-
-    auto* headerCard = createPanelCard(ui->pageSetting);
-    auto* headerLayout = new QVBoxLayout(headerCard);
-    headerLayout->setContentsMargins(20, 16, 20, 16);
-    auto* titleLabel = new QLabel("系统设置", headerCard);
-    titleLabel->setStyleSheet("QLabel{font-size:24px;font-weight:800;color:#7dd3fc;}");
-    auto* subLabel = new QLabel("账号信息、连接状态与系统日志。", headerCard);
-    subLabel->setStyleSheet("QLabel{color:#bfdcff;font-size:13px;}");
-    headerLayout->addWidget(titleLabel);
-    headerLayout->addWidget(subLabel);
-    rootLayout->addWidget(headerCard);
-
-    // ====== 账号信息卡片 ======
-    auto* accountCard = createPanelCard(ui->pageSetting);
-    auto* accountLayout = new QGridLayout(accountCard);
-    accountLayout->setContentsMargins(18, 16, 18, 16);
-    accountLayout->setHorizontalSpacing(12);
-    accountLayout->setVerticalSpacing(10);
-    auto* accountTitle = new QLabel("当前账号信息", accountCard);
-    accountTitle->setStyleSheet("QLabel{font-size:16px;font-weight:700;color:#7dd3fc;}");
-    accountLayout->addWidget(accountTitle, 0, 0, 1, 2);
-
-    const QString roleText = (m_userRole == "admin") ? "管理员" : "普通用户";
-    accountLayout->addWidget(new QLabel("账号：", accountCard), 1, 0);
-    accountLayout->addWidget(new QLabel(m_userName, accountCard), 1, 1);
-    accountLayout->addWidget(new QLabel("角色：", accountCard), 2, 0);
-    accountLayout->addWidget(new QLabel(roleText, accountCard), 2, 1);
-    accountLayout->addWidget(new QLabel("登录时间：", accountCard), 3, 0);
-    accountLayout->addWidget(new QLabel(m_loginTime.toString("yyyy-MM-dd HH:mm:ss"), accountCard), 3, 1);
-
-    auto* editAccountButton = new QPushButton("修改信息", accountCard);
-    editAccountButton->setMinimumHeight(34);
-    connect(editAccountButton, &QPushButton::clicked, this, &MainWindow::onEditAccountInfoClicked);
-    accountLayout->addWidget(editAccountButton, 5, 0, 1, 1, Qt::AlignLeft);
-
-    auto* switchAccountButton = new QPushButton("切换账号", accountCard);
-    switchAccountButton->setMinimumHeight(34);
-    connect(switchAccountButton, &QPushButton::clicked, this, &MainWindow::onSwitchAccountClicked);
-    accountLayout->addWidget(switchAccountButton, 5, 1, 1, 1, Qt::AlignRight);
-    rootLayout->addWidget(accountCard);
-
-    // ====== MQTT + DB 状态（双列）======
-    auto* statusCard = createPanelCard(ui->pageSetting);
-    auto* statusRow = new QHBoxLayout(statusCard);
-    statusRow->setContentsMargins(18, 16, 18, 16);
-    statusRow->setSpacing(16);
-
-    // MQTT 状态
-    auto* mqttBox = new QWidget(statusCard);
-    mqttBox->setStyleSheet("background:transparent;");
-    auto* mqttLay = new QVBoxLayout(mqttBox);
-    mqttLay->setContentsMargins(0, 0, 0, 0);
-    mqttLay->setSpacing(8);
-    auto* mqttTitle = new QLabel("MQTT 连接", mqttBox);
-    mqttTitle->setStyleSheet("QLabel{font-size:15px;font-weight:700;color:#7dd3fc;}");
-    mqttLay->addWidget(mqttTitle);
-
-    auto addInfoRow = [](QVBoxLayout* lay, const QString& label, const QString& value, const QString& color = "#e8f1ff") {
-        auto* row = new QHBoxLayout();
-        auto* lbl = new QLabel(label);
-        lbl->setStyleSheet("QLabel{color:#94a3b8;font-size:12px;}");
-        auto* val = new QLabel(value);
-        val->setStyleSheet(QString("QLabel{color:%1;font-size:12px;font-weight:600;}").arg(color));
-        val->setWordWrap(true);
-        row->addWidget(lbl);
-        row->addWidget(val, 1);
-        lay->addLayout(row);
-    };
-    const bool mqttConnected = m_mqtt.isConnected();
-    addInfoRow(mqttLay, "状态：", mqttConnected ? "已连接" : "未连接",
-               mqttConnected ? "#22c55e" : "#ef4444");
-    addInfoRow(mqttLay, "Broker：", "bemfa.com:9501");
-    addInfoRow(mqttLay, "Topic：", "test001up / WebQT1");
-    mqttLay->addStretch();
-
-    // DB 状态
-    auto* dbBox = new QWidget(statusCard);
-    dbBox->setStyleSheet("background:transparent;");
-    auto* dbLay = new QVBoxLayout(dbBox);
-    dbLay->setContentsMargins(0, 0, 0, 0);
-    dbLay->setSpacing(8);
-    auto* dbTitle = new QLabel("数据库信息", dbBox);
-    dbTitle->setStyleSheet("QLabel{font-size:15px;font-weight:700;color:#7dd3fc;}");
-    dbLay->addWidget(dbTitle);
-
-    QString dbPath = QDir(DbConfig::kDbDir).filePath(DbConfig::kDbFileName);
-    QFileInfo dbFi(dbPath);
-    addInfoRow(dbLay, "路径：", QDir::toNativeSeparators(dbPath));
-    addInfoRow(dbLay, "大小：", dbFi.exists()
-        ? QString("%1 KB").arg(dbFi.size() / 1024) : "尚未创建");
-    addInfoRow(dbLay, "数据库：", m_db ? "已连接" : "未连接",
-               m_db ? "#22c55e" : "#f59e0b");
-    addInfoRow(dbLay, "最后更新：", dbFi.exists()
-        ? dbFi.lastModified().toString("yyyy-MM-dd HH:mm:ss") : "--");
-    dbLay->addStretch();
-
-    statusRow->addWidget(mqttBox);
-    statusRow->addWidget(dbBox);
-    rootLayout->addWidget(statusCard);
-
-    // ====== 系统日志 ======
-    m_logViewer = new QPlainTextEdit(ui->pageSetting);
-    m_logViewer->setReadOnly(true);
-    m_logViewer->setPlainText(
-        QStringLiteral("%1 %2 登入")
-            .arg(m_loginTime.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")), m_userName));
-
-    auto* logCard = createPanelCard(ui->pageSetting);
-    auto* logLayout = new QVBoxLayout(logCard);
-    logLayout->setContentsMargins(12, 12, 12, 12);
-    auto* logTitle = new QLabel("系统日志", logCard);
-    logTitle->setStyleSheet("QLabel{font-size:16px;font-weight:700;color:#7dd3fc;}");
-    logLayout->addWidget(logTitle);
-    logLayout->addWidget(m_logViewer);
-    rootLayout->addWidget(logCard, 1);
-}
 
 void MainWindow::updateTopBarTime() {
     const QString now = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
@@ -2605,7 +836,6 @@ void MainWindow::updateTopBarTime() {
             m_realtimeStatusLabel->setStyleSheet("QLabel{color:#f59e0b;font-size:14px;font-weight:700;}");
         }
         updateRealtimeCardOfflineState(true);
-        syncDeviceOfflineRecords(nowDt);
     } else {
         m_isDeviceOffline = false;
         m_offlineStartAt = QDateTime();
@@ -2614,6 +844,19 @@ void MainWindow::updateTopBarTime() {
 }
 
 void MainWindow::onNavCurrentRowChanged(int row) {
+    // 懒加载：页面首次访问时才构建
+    if (!m_builtPages.contains(row)) {
+        switch (row) {
+        case 0: buildRealtimePage(); break;
+        case 1: buildWaterPowerPage(); break;
+        case 2: buildHistoryPage(); break;
+        case 3: buildAlarmPage(); break;
+        case 4: buildDevicePage(); break;
+        case 5: buildSettingsPage(); break;
+        }
+        m_builtPages.insert(row);
+    }
+
     switch (row) {
     case 0:
         ui->stackedWidgetPages->setCurrentWidget(ui->pageDashboard);
@@ -2633,7 +876,6 @@ void MainWindow::onNavCurrentRowChanged(int row) {
         break;
     case 5:
         ui->stackedWidgetPages->setCurrentWidget(ui->pageSetting);
-        buildSettingsPage();
         break;
     default:
         break;
@@ -2670,42 +912,6 @@ void MainWindow::updateRealtimeCardOfflineState(bool offline) {
     const QList<QLabel*> dots = {m_dotTemp, m_dotHumi, m_dotFlow, m_dotCurrent, m_dotAir, m_dotPm};
     for (QLabel* dot : dots) {
         setCardStateDot(dot, QColor(0xff, 0xff, 0xff));
-    }
-    if (m_realtimeSensorTable != nullptr) {
-        const QList<QStringList> rows = {
-            {"temperature", "离线", "--", "A区机柜"},
-            {"humidity", "离线", "--", "B区仓储"},
-            {"water_flow", "离线", "--", "管网主线"},
-            {"current", "离线", "--", "供电柜"},
-            {"air_quality", "离线", "--", "主通道"},
-            {"pm25", "离线", "--", "主通道"}
-        };
-        for (int row = 0; row < rows.size(); ++row) {
-            for (int col = 0; col < rows[row].size(); ++col) {
-                m_realtimeSensorTable->setItem(row, col, new QTableWidgetItem(rows[row][col]));
-            }
-        }
-    }
-}
-
-void MainWindow::syncDeviceOfflineRecords(const QDateTime& now) {
-    if (m_db == nullptr || !m_offlineStartAt.isValid()) {
-        return;
-    }
-    const qint64 durationSec = qMax<qint64>(0, m_offlineStartAt.secsTo(now));
-    if (durationSec == m_lastOfflineDurationSec) {
-        return;
-    }
-    m_lastOfflineDurationSec = durationSec;
-
-    const QStringList sensorFields = {
-        "temperature", "humidity", "water_flow", "current", "air_quality", "pm25"
-    };
-    for (const QString& sensor : sensorFields) {
-        QString err;
-        if (!m_db->upsertDeviceOfflineRecord(sensor, m_offlineStartAt, durationSec, &err)) {
-            qDebug() << "[DB] upsert offline record failed:" << sensor << err;
-        }
     }
 }
 
@@ -2776,31 +982,6 @@ void MainWindow::updateDataWithLevels(double temp, double hum, double current,
         } else {
             m_realtimeStatusLabel->setText(QStringLiteral("系统运行状态：正常"));
             m_realtimeStatusLabel->setStyleSheet(QStringLiteral("QLabel{color:#059669;font-size:14px;font-weight:700;}"));
-        }
-    }
-
-    for (auto& device : m_devices) {
-        if (device.id == "TEMP-001")      { device.latestValue = temp; device.status = lvDeviceStatus(tempLv); }
-        else if (device.id == "HUMI-002") { device.latestValue = hum; device.status = lvDeviceStatus(humiLv); }
-        else if (device.id == "FLOW-003") { device.latestValue = flow; device.status = lvDeviceStatus(flowLv); }
-        else if (device.id == "CURR-004") { device.latestValue = current; device.status = lvDeviceStatus(currentLv); }
-        else if (device.id == "AIR-005")  { device.latestValue = airIndex; device.status = lvDeviceStatus(airLv); }
-        else if (device.id == "PM25-006") { device.latestValue = pm25; device.status = lvDeviceStatus(pmLv); }
-    }
-
-    if (m_realtimeSensorTable != nullptr) {
-        const QList<QStringList> rows = {
-            {"temperature", lvStatusZh(tempLv), QString("%1 ℃").arg(QString::number(temp, 'f', 1)), "A区机柜"},
-            {"humidity", lvStatusZh(humiLv), QString("%1 %").arg(QString::number(hum, 'f', 1)), "B区仓储"},
-            {"water_flow", lvStatusZh(flowLv), QString("%1 L/min").arg(QString::number(flow, 'f', 2)), "管网主线"},
-            {"current", lvStatusZh(currentLv), QString("%1 A").arg(QString::number(current / 1000.0, 'f', 1)), "供电柜"},
-            {"air_quality", lvStatusZh(airLv), QString("%1 (%2)").arg(QString::number(airIndex, 'f', 0), airGrade), "主通道"},
-            {"pm25", lvStatusZh(pmLv), QString("%1 ug/m3").arg(QString::number(pm25, 'f', 1)), "主通道"}
-        };
-        for (int row = 0; row < rows.size(); ++row) {
-            for (int col = 0; col < rows[row].size(); ++col) {
-                m_realtimeSensorTable->setItem(row, col, new QTableWidgetItem(rows[row][col]));
-            }
         }
     }
 
@@ -2900,30 +1081,6 @@ void MainWindow::updateDataWithLevels(double temp, double hum, double current,
         }
     }
 
-    // 实时负载大字（此部分已移至updateResourcePct）
-
-    // ===== 水电页实时电流/水流折线图追加 =====
-    if (m_wpCurrentSeries != nullptr && m_wpFlowSeries != nullptr) {
-        m_wpCurrentSeries->append(now.toMSecsSinceEpoch(), current / 1000.0);
-        m_wpFlowSeries->append(now.toMSecsSinceEpoch(), flow);
-
-        const int maxPoints = 60;
-        if (m_wpCurrentSeries->count() > maxPoints) {
-            m_wpCurrentSeries->removePoints(0, m_wpCurrentSeries->count() - maxPoints);
-            m_wpFlowSeries->removePoints(0, m_wpFlowSeries->count() - maxPoints);
-        }
-
-        // X 轴：最近数据点的前后时间范围
-        if (m_wpAxisX != nullptr && m_wpCurrentSeries->count() >= 2) {
-            const auto pts = m_wpCurrentSeries->points();
-            const qreal tMin = pts.first().x();
-            const qreal tMax = pts.last().x();
-            m_wpAxisX->setRange(QDateTime::fromMSecsSinceEpoch((qint64)tMin),
-                                QDateTime::fromMSecsSinceEpoch((qint64)tMax));
-        }
-    }
-
-    refreshHistoryPage();
 }
 
 void MainWindow::updateResourcePct(double batteryPct, double waterPct,
@@ -2934,6 +1091,8 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
                                     int batRemainMin, int wtrRemainMin) {
     m_batteryPct = qBound(0.0, batteryPct, 100.0);
     m_waterPct   = qBound(0.0, waterPct,   100.0);
+    m_lastUsedPowerMAh = qMax(0, usedPowerMAh);
+    m_lastUsedWaterCL = qMax(0, usedWaterCL);
 
     // 实时负载大字 + 状态（使用STM32 powerStatus）
     if (m_wpLoadValueLabel != nullptr) {
@@ -2972,10 +1131,12 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
             QString info = QStringLiteral(
                 "剩余: %1 mAh\n"
                 "已用: %2 mAh\n"
+                "今日用电: %4 Ah\n"
                 "容量: %3 mAh")
                 .arg(QString::number(remainMAh, 'f', 0),
                      QString::number(usedPowerMAh),
-                     QString::number(batCapMAh));
+                     QString::number(batCapMAh),
+                     QString::number(m_lastUsedPowerMAh / 1000.0, 'f', 1));
             if (batRemainMin > 0) {
                 if (batRemainMin >= 1440)
                     info += QStringLiteral("\n预估: 约 %1 天").arg(QString::number(batRemainMin / 1440.0, 'f', 1));
@@ -3000,10 +1161,12 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
             QString info = QStringLiteral(
                 "剩余: %1 L\n"
                 "已用: %2 L\n"
+                "今日用水: %4 L\n"
                 "容量: %3 L")
                 .arg(QString::number(remainL, 'f', 1),
                      QString::number(usedL, 'f', 1),
-                     QString::number(tankCapCL / 100.0, 'f', 1));
+                     QString::number(tankCapCL / 100.0, 'f', 1),
+                     QString::number(m_lastUsedWaterCL / 100.0, 'f', 1));
             if (wtrRemainMin > 0) {
                 if (wtrRemainMin >= 1440)
                     info += QStringLiteral("\n预估: 约 %1 天").arg(QString::number(wtrRemainMin / 1440.0, 'f', 1));
@@ -3017,6 +1180,314 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
             m_tankInfoLabel->setText(info);
         }
     }
+
+    refreshWaterPowerUsageSummary();
+}
+
+QString MainWindow::resolveDashboardHistoryDataPath() const {
+    const QDir workspaceRoot(QStringLiteral("D:/AAA"));
+    return workspaceRoot.filePath(QStringLiteral("dashboard/js/history_data.js"));
+}
+
+void MainWindow::refreshWaterPowerUsageSummary() {
+    if (m_wpTodayPowerLabel) {
+        m_wpTodayPowerLabel->setText(
+            QStringLiteral("用电: %1 Ah").arg(QString::number(m_lastUsedPowerMAh / 1000.0, 'f', 1)));
+    }
+    if (m_wpTodayWaterLabel) {
+        m_wpTodayWaterLabel->setText(
+            QStringLiteral("用水: %1 L").arg(QString::number(m_lastUsedWaterCL / 100.0, 'f', 1)));
+    }
+
+    if (!m_wpRecentRangeLabel || !m_wpRecentPowerLabel || !m_wpRecentWaterLabel) {
+        return;
+    }
+
+    const QDate endDay = QDate::currentDate().addDays(-1);
+    const QDate startDay = endDay.addDays(-6);
+    int totalPowerMAh = 0;
+    int totalWaterCL = 0;
+
+    if (m_db != nullptr) {
+        QString queryErr;
+        const QList<DatabaseManager::DailyResourceUsageEntry> rows =
+            m_db->queryDailyResourceUsage(startDay, endDay, &queryErr);
+        if (!queryErr.isEmpty()) {
+            qDebug() << "[DB] query daily summary failed:" << queryErr;
+        } else {
+            for (const auto& row : rows) {
+                totalPowerMAh += qMax(0, row.powerMAh);
+                totalWaterCL += qMax(0, row.waterCL);
+            }
+        }
+    }
+
+    m_wpRecentRangeLabel->setText(
+        QStringLiteral("统计区间: %1 ~ %2")
+            .arg(startDay.toString(QStringLiteral("MM-dd")),
+                 endDay.toString(QStringLiteral("MM-dd"))));
+    m_wpRecentPowerLabel->setText(
+        QStringLiteral("用电: %1 Ah").arg(QString::number(totalPowerMAh / 1000.0, 'f', 1)));
+    m_wpRecentWaterLabel->setText(
+        QStringLiteral("用水: %1 L").arg(QString::number(totalWaterCL / 100.0, 'f', 1)));
+}
+
+void MainWindow::refreshWaterPowerAnalysisPage() {
+    if (m_db == nullptr || m_wpUsagePowerSet == nullptr || m_wpUsageWaterSet == nullptr ||
+        m_wpTrendPowerSet == nullptr || m_wpTrendWaterSet == nullptr) {
+        return;
+    }
+
+    const QDate selectedDay = m_wpAnalysisDateEdit ? m_wpAnalysisDateEdit->date() : QDate::currentDate().addDays(-1);
+    const int bucketMinutes = 60;
+    const int trendDays = (m_wpTrendDaysCombo && m_wpTrendDaysCombo->currentIndex() == 1) ? 15
+                        : (m_wpTrendDaysCombo && m_wpTrendDaysCombo->currentIndex() == 2) ? 30
+                        : 7;
+
+    const QDateTime dayStart(selectedDay, QTime(0, 0, 0));
+    const QDateTime dayEnd(selectedDay, QTime(23, 59, 59));
+
+    QString err;
+    const QList<SensorData> points = m_db->queryDataRange(dayStart, dayEnd, &err);
+    if (!err.isEmpty()) {
+        qDebug() << "[DB] query water/power day points failed:" << err;
+    }
+
+    struct BucketUsage {
+        double powerMAh = 0.0;
+        double waterL = 0.0;
+    };
+
+    QMap<int, BucketUsage> bucketMap;
+    for (int i = 0; i < points.size(); ++i) {
+        double dtSec = 1.0;
+        if (i + 1 < points.size()) {
+            dtSec = qBound(1.0, static_cast<double>(points[i].ts.secsTo(points[i + 1].ts)), 3600.0);
+        }
+        const int bucketIdx = qBound(0, points[i].ts.time().msecsSinceStartOfDay() / (bucketMinutes * 60 * 1000),
+                                     (24 * 60 / bucketMinutes) - 1);
+        BucketUsage& bucket = bucketMap[bucketIdx];
+        bucket.powerMAh += qMax(0.0, points[i].currentA * dtSec / 3600.0);
+        bucket.waterL += qMax(0.0, points[i].flowLMin * dtSec / 60.0);
+    }
+
+    m_wpUsagePowerSet->remove(0, m_wpUsagePowerSet->count());
+    m_wpUsageWaterSet->remove(0, m_wpUsageWaterSet->count());
+    QStringList bucketLabels;
+
+    double totalPowerMAh = 0.0;
+    double totalWaterL = 0.0;
+    double peakPowerMAh = -1.0;
+    double peakWaterL = -1.0;
+    QString peakPowerTime;
+    QString peakWaterTime;
+
+    const int bucketCount = 24 * 60 / bucketMinutes;
+    for (int i = 0; i < bucketCount; ++i) {
+        const QDateTime bucketTime = dayStart.addSecs(i * bucketMinutes * 60);
+        const BucketUsage bucket = bucketMap.value(i);
+        *m_wpUsagePowerSet << qRound(bucket.powerMAh * 10.0) / 10.0;
+        *m_wpUsageWaterSet << qRound(bucket.waterL * 10.0) / 10.0;
+        bucketLabels << QString::number(i);
+        totalPowerMAh += bucket.powerMAh;
+        totalWaterL += bucket.waterL;
+        if (bucket.powerMAh > peakPowerMAh) {
+            peakPowerMAh = bucket.powerMAh;
+            peakPowerTime = bucketTime.toString(QStringLiteral("HH:mm"));
+        }
+        if (bucket.waterL > peakWaterL) {
+            peakWaterL = bucket.waterL;
+            peakWaterTime = bucketTime.toString(QStringLiteral("HH:mm"));
+        }
+    }
+
+    if (m_wpUsageAxisX_Power) { m_wpUsageAxisX_Power->clear(); m_wpUsageAxisX_Power->setCategories(bucketLabels); }
+    if (m_wpUsageAxisX_Water) { m_wpUsageAxisX_Water->clear(); m_wpUsageAxisX_Water->setCategories(bucketLabels); }
+    if (m_wpUsageAxisY_Power) {
+        m_wpUsageAxisY_Power->setRange(0.0, qMax(10.0, peakPowerMAh * 1.25));
+    }
+    if (m_wpUsageAxisY_Water) {
+        m_wpUsageAxisY_Water->setRange(0.0, qMax(1.0, peakWaterL * 1.25));
+    }
+    if (m_wpUsageStatsLabel) {
+        const double avgPower = bucketCount > 0 ? totalPowerMAh / bucketCount : 0.0;
+        const double avgWater = bucketCount > 0 ? totalWaterL / bucketCount : 0.0;
+        int activePowerBuckets = 0;
+        int activeWaterBuckets = 0;
+        for (auto it = bucketMap.constBegin(); it != bucketMap.constEnd(); ++it) {
+            if (it.value().powerMAh > 0.01) activePowerBuckets++;
+            if (it.value().waterL > 0.001) activeWaterBuckets++;
+        }
+        m_wpUsageStatsLabel->setText(
+            QStringLiteral(
+                "日期：%1\n"
+                "用电总量：%2 mAh，均值：%3 mAh/时段，峰值：%4 mAh（%5），活跃时长：约 %6 小时\n"
+                "用水总量：%7 L，均值：%8 L/时段，峰值：%9 L（%10），活跃时长：约 %11 小时")
+                .arg(selectedDay.toString(QStringLiteral("yyyy-MM-dd")))
+                .arg(QString::number(totalPowerMAh, 'f', 0))
+                .arg(QString::number(avgPower, 'f', 1))
+                .arg(QString::number(qMax(0.0, peakPowerMAh), 'f', 0))
+                .arg(peakPowerTime.isEmpty() ? QStringLiteral("--") : peakPowerTime)
+                .arg(QString::number(activePowerBuckets * bucketMinutes / 60.0, 'f', 1))
+                .arg(QString::number(totalWaterL, 'f', 1))
+                .arg(QString::number(avgWater, 'f', 2))
+                .arg(QString::number(qMax(0.0, peakWaterL), 'f', 2))
+                .arg(peakWaterTime.isEmpty() ? QStringLiteral("--") : peakWaterTime)
+                .arg(QString::number(activeWaterBuckets * bucketMinutes / 60.0, 'f', 1)));
+    }
+
+    const QDate trendEnd = QDate::currentDate().addDays(-1);
+    const QDate trendStart = trendEnd.addDays(-(trendDays - 1));
+    const QList<DatabaseManager::DailyResourceUsageEntry> trendRows =
+        m_db->queryDailyResourceUsage(trendStart, trendEnd, &err);
+    if (!err.isEmpty()) {
+        qDebug() << "[DB] query water/power trend rows failed:" << err;
+    }
+    QMap<QString, DatabaseManager::DailyResourceUsageEntry> trendMap;
+    for (const auto& row : trendRows) trendMap.insert(row.day, row);
+
+    m_wpTrendPowerSet->remove(0, m_wpTrendPowerSet->count());
+    m_wpTrendWaterSet->remove(0, m_wpTrendWaterSet->count());
+    QStringList trendLabels;
+    double maxTrendPower = 0.0;
+    double maxTrendWater = 0.0;
+    double totalTrendPower = 0.0;
+    double totalTrendWater = 0.0;
+    QString peakPowerDay;
+    QString peakWaterDay;
+    const bool sameMonth = (trendStart.month() == trendEnd.month() && trendStart.year() == trendEnd.year());
+    int lastMonth = -1;
+    for (int i = 0; i < trendDays; ++i) {
+        const QDate day = trendStart.addDays(i);
+        const QString key = day.toString(Qt::ISODate);
+        const auto row = trendMap.value(key, DatabaseManager::DailyResourceUsageEntry{});
+        const double power = row.powerMAh;
+        const double water = row.waterCL / 100.0;
+        *m_wpTrendPowerSet << qRound(power * 10.0) / 10.0;
+        *m_wpTrendWaterSet << qRound(water * 10.0) / 10.0;
+        if (sameMonth) {
+            trendLabels << day.toString(QStringLiteral("d"));
+        } else if (day.month() != lastMonth) {
+            trendLabels << day.toString(QStringLiteral("M.d"));
+            lastMonth = day.month();
+        } else {
+            trendLabels << day.toString(QStringLiteral("d"));
+        }
+        totalTrendPower += power;
+        totalTrendWater += water;
+        if (power > maxTrendPower) {
+            maxTrendPower = power;
+            peakPowerDay = day.toString(QStringLiteral("MM-dd"));
+        }
+        if (water > maxTrendWater) {
+            maxTrendWater = water;
+            peakWaterDay = day.toString(QStringLiteral("MM-dd"));
+        }
+    }
+
+    if (m_wpTrendAxisX_Power) { m_wpTrendAxisX_Power->clear(); m_wpTrendAxisX_Power->setCategories(trendLabels); }
+    if (m_wpTrendAxisX_Water) { m_wpTrendAxisX_Water->clear(); m_wpTrendAxisX_Water->setCategories(trendLabels); }
+    if (m_wpTrendAxisY_Power) {
+        m_wpTrendAxisY_Power->setRange(0.0, qMax(10.0, maxTrendPower * 1.25));
+    }
+    if (m_wpTrendAxisY_Water) {
+        m_wpTrendAxisY_Water->setRange(0.0, qMax(1.0, maxTrendWater * 1.25));
+    }
+    if (m_wpTrendStatsLabel) {
+        m_wpTrendStatsLabel->setText(
+            QStringLiteral(
+                "区间：%1 ~ %2\n"
+                "总用电：%3 mAh，日均：%4 mAh，峰值日：%5（%6 mAh）\n"
+                "总用水：%7 L，日均：%8 L，峰值日：%9（%10 L）")
+                .arg(trendStart.toString(QStringLiteral("yyyy-MM-dd")))
+                .arg(trendEnd.toString(QStringLiteral("yyyy-MM-dd")))
+                .arg(QString::number(totalTrendPower, 'f', 0))
+                .arg(QString::number(trendDays > 0 ? totalTrendPower / trendDays : 0.0, 'f', 1))
+                .arg(peakPowerDay.isEmpty() ? QStringLiteral("--") : peakPowerDay)
+                .arg(QString::number(maxTrendPower, 'f', 0))
+                .arg(QString::number(totalTrendWater, 'f', 1))
+                .arg(QString::number(trendDays > 0 ? totalTrendWater / trendDays : 0.0, 'f', 1))
+                .arg(peakWaterDay.isEmpty() ? QStringLiteral("--") : peakWaterDay)
+                .arg(QString::number(maxTrendWater, 'f', 1)));
+    }
+}
+
+void MainWindow::exportDashboardHistoryData() {
+    if (m_db == nullptr) {
+        return;
+    }
+
+    const QDate endDay = QDate::currentDate().addDays(-1);
+    const QDate startDay = endDay.addDays(-6);
+    QString queryErr;
+    const QList<DatabaseManager::DailyResourceUsageEntry> usageRows =
+        m_db->queryDailyResourceUsage(QDate(), QDate(), &queryErr);
+    if (!queryErr.isEmpty()) {
+        qDebug() << "[DB] query daily resource usage failed:" << queryErr;
+        return;
+    }
+
+    QMap<QString, DatabaseManager::DailyResourceUsageEntry> usageByDay;
+    for (const auto& row : usageRows) {
+        usageByDay.insert(row.day, row);
+    }
+
+    auto buildJsonDay = [](const QString& day,
+                           const DatabaseManager::DailyResourceUsageEntry* row) -> QJsonObject {
+        QJsonObject obj;
+        obj.insert(QStringLiteral("date"), day);
+        obj.insert(QStringLiteral("samples"), 0);
+        obj.insert(QStringLiteral("avgCurrentMA"), 0);
+        obj.insert(QStringLiteral("avgFlowLMin"), 0);
+        obj.insert(QStringLiteral("powerMAh"), row ? row->powerMAh : 0);
+        obj.insert(QStringLiteral("waterL"), row ? (static_cast<double>(row->waterCL) / 100.0) : 0.0);
+        return obj;
+    };
+
+    QJsonArray allDays;
+    for (const auto& row : usageRows) {
+        allDays.append(buildJsonDay(row.day, &row));
+    }
+
+    QJsonArray recent7;
+    for (int i = 0; i < 7; ++i) {
+        const QString day = startDay.addDays(i).toString(Qt::ISODate);
+        const auto it = usageByDay.constFind(day);
+        const DatabaseManager::DailyResourceUsageEntry* row = (it != usageByDay.constEnd()) ? &it.value() : nullptr;
+        recent7.append(buildJsonDay(day, row));
+    }
+
+    QJsonArray recent10;
+    const QDate recent10Start = endDay.addDays(-9);
+    for (int i = 0; i < 10; ++i) {
+        const QString day = recent10Start.addDays(i).toString(Qt::ISODate);
+        const auto it = usageByDay.constFind(day);
+        const DatabaseManager::DailyResourceUsageEntry* row = (it != usageByDay.constEnd()) ? &it.value() : nullptr;
+        recent10.append(buildJsonDay(day, row));
+    }
+
+    QJsonObject root;
+    root.insert(QStringLiteral("allDays"), allDays);
+    root.insert(QStringLiteral("recent10"), recent10);
+    root.insert(QStringLiteral("recent7"), recent7);
+
+    const QString outPath = resolveDashboardHistoryDataPath();
+    QDir().mkpath(QFileInfo(outPath).absolutePath());
+    QFile file(outPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        qDebug() << "[Web] open history_data.js failed:" << outPath << file.errorString();
+        return;
+    }
+
+    QString content;
+    content += QStringLiteral("// 由 System_UI 自动生成，数据来源 D:/System_UI_Data/system_ui.sqlite\n");
+    content += QStringLiteral("// 生成时间: %1\n")
+                   .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+    content += QStringLiteral("window.HISTORY_DATA = ");
+    content += QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    content += QStringLiteral(";\n");
+    file.write(content.toUtf8());
+    file.close();
 }
 
 void MainWindow::onUpdateDashboardData() {
@@ -3034,224 +1505,263 @@ void MainWindow::onUpdateDashboardData() {
     const double airIndex = pm25;
     updateData(temp, hum, current, flow, airIndex, pm25);
 
-    if (m_tempSeries == nullptr || m_humiSeries == nullptr || m_pmSeries == nullptr || m_axisX == nullptr) {
+    if (m_currentSeries == nullptr || m_flowSeries == nullptr || m_axisX == nullptr) {
         return;
     }
 
     qreal t = QDateTime::currentMSecsSinceEpoch();
-    m_tempSeries->append(t, temp);
-    m_humiSeries->append(t, hum);
-    m_pmSeries->append(t, pm25);
+    m_currentSeries->append(t, current);
+    m_flowSeries->append(t, flow);
 
     const int maxPoints = 20;
-    if (m_tempSeries->count() > maxPoints) {
-        m_tempSeries->removePoints(0, m_tempSeries->count() - maxPoints);
-        m_humiSeries->removePoints(0, m_humiSeries->count() - maxPoints);
-        m_pmSeries->removePoints(0, m_pmSeries->count() - maxPoints);
+    if (m_currentSeries->count() > maxPoints) {
+        m_currentSeries->removePoints(0, m_currentSeries->count() - maxPoints);
+        m_flowSeries->removePoints(0, m_flowSeries->count() - maxPoints);
     }
 
-    if (m_tempSeries->count() >= 2) {
-        auto pts = m_tempSeries->points();
+    double curMax = 0, flowMax = 0;
+    for (const auto& pt : m_currentSeries->points())
+        curMax = qMax(curMax, pt.y());
+    for (const auto& pt : m_flowSeries->points())
+        flowMax = qMax(flowMax, pt.y());
+    if (curMax < 100) curMax = 100;
+    if (flowMax < 1) flowMax = 1;
+    m_axisY_Current->setRange(0, curMax * 1.3);
+    m_axisY_Flow->setRange(0, flowMax * 1.3);
+
+    if (m_currentSeries->count() >= 2) {
+        auto pts = m_currentSeries->points();
         m_axisX->setRange(QDateTime::fromMSecsSinceEpoch((qint64)pts.first().x()),
                            QDateTime::fromMSecsSinceEpoch((qint64)pts.last().x()));
     }
 }
 
-void MainWindow::onUpdateEnvironmentData() {
-    // 预留空实现
-}
-
 void MainWindow::refreshHistoryPage() {
-    if (m_db == nullptr || m_historyLineSeries.size() != 6 || m_historyChartViews.size() != 6) {
+    constexpr int kHistoryChartMaxPoints = 720;
+
+    bool anyBuilt = false;
+    for (int i = 0; i < m_historyCharts.size(); ++i) {
+        if (m_historyCharts[i] != nullptr) { anyBuilt = true; break; }
+    }
+    if (m_db == nullptr || !anyBuilt) {
         return;
     }
 
-    auto* startEdit = ui->pageEnvironment->findChild<QDateTimeEdit*>("historyStartTime");
-    auto* endEdit   = ui->pageEnvironment->findChild<QDateTimeEdit*>("historyEndTime");
-    const QDateTime rangeStart = startEdit ? startEdit->dateTime() : QDateTime::currentDateTime().addDays(-1);
-    const QDateTime rangeEnd   = endEdit   ? endEdit->dateTime()   : QDateTime::currentDateTime();
+    const QDateTime rangeStart = m_historyStartCombo
+                                     ? m_historyStartCombo->dateTime()
+                                     : QDateTime::currentDateTime().addDays(-1);
+    const QDateTime rangeEnd = m_historyEndCombo
+                                   ? m_historyEndCombo->dateTime()
+                                   : QDateTime::currentDateTime();
 
     if (rangeStart >= rangeEnd) {
-        for (auto* v : m_historyChartViews) {
-            if (auto* card = v->parentWidget()) card->hide();
+        for (int i = 0; i < m_historyStatLabels.size(); ++i) {
+            if (m_historyStatLabels[i]) m_historyStatLabels[i]->setVisible(false);
         }
-        if (m_historyStatsLeftLabel) m_historyStatsLeftLabel->setText("时间范围有误");
-        if (m_historySummaryLabel) m_historySummaryLabel->setText("起始时间必须早于结束时间，请重新选择。");
-        return;
-    }
-    if (rangeEnd > QDateTime::currentDateTime()) {
-        for (auto* v : m_historyChartViews) {
-            if (auto* card = v->parentWidget()) card->hide();
-        }
-        if (m_historyStatsLeftLabel) m_historyStatsLeftLabel->setText("时间超出范围");
-        if (m_historySummaryLabel) m_historySummaryLabel->setText("结束时间不能超过当前时间，请重新选择。");
         return;
     }
 
-    // 查询完整时间范围内的数据点，避免被固定 LIMIT 截断。
-    QString err;
-    QList<SensorData> points = m_db->queryDataRange(rangeStart, rangeEnd, &err);
-    if (!err.isEmpty()) {
-        qDebug() << "[DB] query recent data failed:" << err;
-    }
-
-    // 计算哪些传感器被选中
-    QList<int> selectedIndices;
-    for (int i = 0; i < m_historySensorCheckBoxes.size(); ++i) {
-        if (m_historySensorCheckBoxes[i]->isChecked()) {
-            selectedIndices.append(i);
+    QVector<int> selectedMetrics;
+    for (int i = 0; i < m_historyMetricChecks.size(); ++i) {
+        if (m_historyMetricChecks[i] != nullptr && m_historyMetricChecks[i]->isChecked()) {
+            selectedMetrics.append(i);
         }
     }
-
-    const int totalSelected = selectedIndices.size();
-    if (totalSelected == 0) {
-        for (auto* v : m_historyChartViews) {
-            if (auto* card = v->parentWidget()) card->hide();
+    if (selectedMetrics.isEmpty()) {
+        for (int i = 0; i < m_historyLineSeries.size(); ++i) {
+            if (m_historyLineSeries[i] != nullptr) {
+                m_historyLineSeries[i]->clear();
+            }
         }
-        if (m_historyStatsLeftLabel) m_historyStatsLeftLabel->setText("请至少选择一项数据类型。");
-        if (m_historyStatsRightLabel) m_historyStatsRightLabel->setText(QString());
-        if (m_historySummaryLabel) m_historySummaryLabel->setText("请在工具栏中选择数据类型后点击「确定」。");
+        for (int i = 0; i < m_historyStatLabels.size(); ++i) {
+            if (m_historyStatLabels[i]) m_historyStatLabels[i]->setVisible(false);
+        }
         return;
     }
 
-    // 计算行列数
-    int cols = 0, rows = 0;
-    if (totalSelected == 1)       { cols = 1; rows = 1; }
-    else if (totalSelected == 2)  { cols = 2; rows = 1; }
-    else if (totalSelected <= 4)  { cols = 2; rows = 2; }
-    else                          { cols = 3; rows = (totalSelected + 2) / 3; }
-
-    // 清空网格（只清布局项，不 delete widget）
-    while (m_historyGridLayout->count() > 0) {
-        auto* item = m_historyGridLayout->takeAt(0);
-        item->widget()->setParent(nullptr);
-        delete item;
+    QString sampleErr;
+    int totalCount = 0;
+    const QList<SensorData> points =
+        m_db->queryDataRangeSampled(rangeStart, rangeEnd, kHistoryChartMaxPoints, &totalCount, &sampleErr);
+    if (!sampleErr.isEmpty()) {
+        qDebug() << "[DB] query sampled history data failed:" << sampleErr;
     }
-    // 重置行列拉伸
-    for (int c = 0; c < m_historyGridLayout->columnCount(); ++c)
-        m_historyGridLayout->setColumnStretch(c, 0);
-    for (int r = 0; r < m_historyGridLayout->rowCount(); ++r)
-        m_historyGridLayout->setRowStretch(r, 0);
 
-    // 重排
-    int gridIdx = 0;
-    for (int si : selectedIndices) {
-        QChartView* view = m_historyChartViews[si];
-        QLineSeries* series = m_historyLineSeries[si];
-        QLineSeries* lowerSeries = (si < m_historyLowerSeries.size()) ? m_historyLowerSeries[si] : nullptr;
-        QChart* chart = view->chart();
-        auto* card = view->parentWidget();
+    QString statsErr;
+    QVector<DatabaseManager::HistoryMetricStats> stats;
+    if (!m_db->queryHistoryMetricStats(rangeStart, rangeEnd, &stats, &statsErr) && !statsErr.isEmpty()) {
+        qDebug() << "[DB] query history stats failed:" << statsErr;
+    }
 
-        // 清空旧数据
+    if (points.isEmpty() || stats.isEmpty() || totalCount <= 0) {
+        for (int i = 0; i < m_historyLineSeries.size(); ++i) {
+            if (m_historyLineSeries[i] != nullptr) {
+                m_historyLineSeries[i]->clear();
+            }
+        }
+        for (int i = 0; i < m_historyStatLabels.size(); ++i) {
+            if (m_historyStatLabels[i]) m_historyStatLabels[i]->setVisible(false);
+        }
+        return;
+    }
+
+    const QStringList metricNames = {
+        QStringLiteral("温度"),
+        QStringLiteral("湿度"),
+        QStringLiteral("PM2.5"),
+        QStringLiteral("空气指数")
+    };
+    const QStringList metricUnits = {
+        QStringLiteral("℃"),
+        QStringLiteral("%"),
+        QStringLiteral("ug/m3"),
+        QString()
+    };
+    const QList<QColor> metricColors = {
+        QColor(248, 113, 113),
+        QColor(56, 189, 248),
+        QColor(251, 191, 36),
+        QColor(34, 197, 94)
+    };
+
+    for (int metricIdx = 0; metricIdx < m_historyLineSeries.size(); ++metricIdx) {
+        QLineSeries* series = m_historyLineSeries[metricIdx];
+        if (series == nullptr) continue;
         series->clear();
-
-        // 更新下边界基线为当前时间范围
-        if (lowerSeries) {
-            lowerSeries->clear();
-            lowerSeries->append(rangeStart.toMSecsSinceEpoch(), 0);
-            lowerSeries->append(rangeEnd.toMSecsSinceEpoch(), 0);
-        }
-
-        // 填入数据点
-        qreal minVal = 1e18, maxVal = -1e18;
-        for (const auto& pt : points) {
-            double val = 0.0;
-            switch (si) {
-            case 0: val = pt.tempC; break;
-            case 1: val = pt.humiPercent; break;
-            case 2: val = pt.pm25UgM3; break;
-            case 3: val = pt.airIndex; break;
-            case 4: val = pt.currentA / 1000.0; break;  // mA→A
-            case 5: val = pt.flowLMin; break;
-            }
-            series->append(pt.ts.toMSecsSinceEpoch(), val);
-            if (val < minVal) minVal = val;
-            if (val > maxVal) maxVal = val;
-        }
-
-        // 设置轴范围
-        auto axes = chart->axes(Qt::Horizontal);
-        if (!axes.isEmpty()) {
-            auto* axisX = qobject_cast<QDateTimeAxis*>(axes.first());
-            if (axisX) {
-                axisX->setRange(rangeStart, rangeEnd);
-                qint64 spanSecs = rangeStart.secsTo(rangeEnd);
-                axisX->setFormat(spanSecs > 86400 ? "MM-dd" : "HH:mm");
-            }
-        }
-        axes = chart->axes(Qt::Vertical);
-        if (!axes.isEmpty()) {
-            auto* axisY = qobject_cast<QValueAxis*>(axes.first());
-            if (axisY && maxVal > minVal) {
-                double margin = (maxVal - minVal) * 0.15;
-                if (margin < 0.01) margin = 1.0;
-                axisY->setRange(qMax(0.0, minVal - margin), maxVal + margin);
-            } else if (axisY) {
-                axisY->setRange(0, 100);
-            }
-        }
-
-        int r = gridIdx / cols;
-        int c = gridIdx % cols;
-        m_historyGridLayout->addWidget(card, r, c);
-        card->show();
-        gridIdx++;
+        QPen pen(metricColors.value(metricIdx, QColor(125, 211, 252)));
+        pen.setWidthF(2.2);
+        series->setPen(pen);
+        series->setName(metricNames.value(metricIdx));
     }
 
-    // 等比例拉伸
-    for (int c = 0; c < cols; ++c)
-        m_historyGridLayout->setColumnStretch(c, 1);
-    for (int r = 0; r < rows; ++r)
-        m_historyGridLayout->setRowStretch(r, 1);
-
-    // 更新统计信息
-    DatabaseManager::DataAverages avg;
-    QString avgErr;
-    if (!m_db->queryAverageSince(rangeStart, &avg, &avgErr)) {
-        qDebug() << "[DB] query averages failed:" << avgErr;
+    QVector<QVector<QPointF>> sampledSeriesPoints(4);
+    for (int metricIdx : selectedMetrics) {
+        if (m_historyCharts.value(metricIdx) == nullptr) continue;
+        sampledSeriesPoints[metricIdx].reserve(points.size());
     }
 
-    if (avg.sampleCount > 0) {
-        const QString leftText =
-            QString("温度均值：%1 ℃\n湿度均值：%2 %\n空气指数均值：%3")
-                .arg(avg.temperature, 0, 'f', 1)
-                .arg(avg.humidity, 0, 'f', 1)
-                .arg(avg.airIndex, 0, 'f', 0);
-        const QString rightText =
-            QString("水流均值：%1 L/min\n电流均值：%2 A\nPM2.5 均值：%3 μg/m³")
-                .arg(avg.flowLMin, 0, 'f', 2)
-                .arg(avg.currentA / 1000.0, 0, 'f', 1)
-                .arg(avg.pm25, 0, 'f', 1);
-
-        if (m_historyStatsLeftLabel) m_historyStatsLeftLabel->setText(leftText);
-        if (m_historyStatsRightLabel) m_historyStatsRightLabel->setText(rightText);
-
-        if (m_historyStatsLabel) {
-            m_historyStatsLabel->setText(
-                QString("温度均值：%1 ℃\n湿度均值：%2 %\nPM2.5 均值：%3 μg/m³\n"
-                        "空气指数均值：%4\n电流均值：%5 A\n水流均值：%6 L/min")
-                    .arg(avg.temperature, 0, 'f', 1)
-                    .arg(avg.humidity, 0, 'f', 1)
-                    .arg(avg.pm25, 0, 'f', 1)
-                    .arg(avg.airIndex, 0, 'f', 0)
-                    .arg(avg.currentA / 1000.0, 0, 'f', 1)
-                    .arg(avg.flowLMin, 0, 'f', 2));
+    for (const auto& pt : points) {
+        const QVector<double> values = {
+            pt.tempC,
+            pt.humiPercent,
+            pt.pm25UgM3,
+            pt.airIndex
+        };
+        for (int metricIdx : selectedMetrics) {
+            if (m_historyCharts.value(metricIdx) == nullptr) continue;
+            const double value = values.value(metricIdx);
+            sampledSeriesPoints[metricIdx].append(QPointF(pt.ts.toMSecsSinceEpoch(), value));
         }
-
-        if (m_historySummaryLabel) {
-            const QString rangeStr = QString("%1 ~ %2")
-                .arg(rangeStart.toString("yyyy-MM-dd HH:mm"), rangeEnd.toString("yyyy-MM-dd HH:mm"));
-            m_historySummaryLabel->setText(
-                QStringLiteral("%1 内共 %2 条记录。折线图展示各传感器数值随时间的变化趋势，"
-                               "纵轴自动适配数据范围。可调整时间与数据类型后点击「查询」刷新。")
-                    .arg(rangeStr)
-                    .arg(avg.sampleCount));
-        }
-    } else {
-        if (m_historyStatsLeftLabel) m_historyStatsLeftLabel->setText("暂无数据");
-        if (m_historyStatsRightLabel) m_historyStatsRightLabel->setText(QString());
-        if (m_historySummaryLabel) m_historySummaryLabel->setText("当前时间范围内没有可展示的数据。");
     }
+
+    for (int metricIdx : selectedMetrics) {
+        QLineSeries* series = m_historyLineSeries.value(metricIdx, nullptr);
+        if (series == nullptr) continue;
+        series->replace(sampledSeriesPoints[metricIdx]);
+    }
+
+    for (int metricIdx : selectedMetrics) {
+        if (m_historyCharts.value(metricIdx) == nullptr) continue;
+        QDateTimeAxis* axisX = m_historyAxisXs.value(metricIdx);
+        QValueAxis* axisY = m_historyAxisYs.value(metricIdx);
+        if (!axisX || !axisY) continue;
+        axisX->setRange(rangeStart, rangeEnd);
+        qint64 span = rangeStart.secsTo(rangeEnd);
+        axisX->setFormat(span > 86400 ? "MM-dd" : "HH:mm");
+        const DatabaseManager::HistoryMetricStats& s = stats[metricIdx];
+        if (s.count > 0 && s.maxVal > s.minVal) {
+            double m = (s.maxVal - s.minVal) * 0.15;
+            if (m < 0.01) m = 1.0;
+            axisY->setRange(qMax(0.0, s.minVal - m), s.maxVal + m);
+        } else {
+            axisY->setRange(0, 100);
+        }
+    }
+
+    for (int metricIdx = 0; metricIdx < 4; ++metricIdx) {
+        if (m_historyStatLabels.value(metricIdx) == nullptr) continue;
+        const bool selected = selectedMetrics.contains(metricIdx)
+                              && m_historyCharts.value(metricIdx) != nullptr;
+        m_historyStatLabels[metricIdx]->setVisible(selected);
+        if (!selected) continue;
+        const DatabaseManager::HistoryMetricStats& s = stats[metricIdx];
+        if (s.count <= 0) {
+            m_historyStatLabels[metricIdx]->setVisible(false);
+            continue;
+        }
+        const QString unit = metricUnits.value(metricIdx);
+        m_historyStatLabels[metricIdx]->setText(
+            QStringLiteral("%1\n最小 %2%6  最大 %3%6\n均值 %4%6  最新 %5%6\n共 %7 条")
+                .arg(metricNames.value(metricIdx),
+                     QString::number(s.minVal, 'f', 1),
+                     QString::number(s.maxVal, 'f', 1),
+                     QString::number(s.avgVal, 'f', 1),
+                     QString::number(s.latestVal, 'f', 1),
+                     unit)
+                .arg(s.count));
+    }
+}
+
+void MainWindow::ensureChartBuilt(int metricIdx) {
+    if (metricIdx < 0 || metricIdx >= 4) return;
+    if (m_historyCharts.value(metricIdx) != nullptr) return;
+
+    QWidget* card = m_historyChartCards.value(metricIdx);
+    if (!card) return;
+
+    QVBoxLayout* cardLayout = qobject_cast<QVBoxLayout*>(card->layout());
+    if (!cardLayout) return;
+
+    QLayoutItem* item = cardLayout->itemAt(1);
+    if (item && item->widget()) {
+        cardLayout->removeWidget(item->widget());
+        delete item->widget();
+    }
+
+    const QList<QColor> metricColors = {
+        QColor(248, 113, 113),
+        QColor(56, 189, 248),
+        QColor(251, 191, 36),
+        QColor(34, 197, 94)
+    };
+
+    auto* chart = new QChart();
+    chart->setBackgroundVisible(false);
+    chart->setPlotAreaBackgroundVisible(true);
+    chart->setPlotAreaBackgroundBrush(QColor(8, 27, 58, 210));
+    chart->legend()->setVisible(false);
+
+    auto* axisX = new QDateTimeAxis(this);
+    axisX->setFormat(QStringLiteral("MM-dd HH:mm"));
+    axisX->setLabelsColor(QColor(0x9a, 0xba, 0xda));
+    chart->addAxis(axisX, Qt::AlignBottom);
+
+    auto* axisY = new QValueAxis(this);
+    axisY->setLabelsColor(QColor(0x9a, 0xba, 0xda));
+    axisY->setGridLineColor(QColor(125, 211, 252, 35));
+    chart->addAxis(axisY, Qt::AlignLeft);
+
+    auto* series = new QLineSeries(this);
+    QPen pen(metricColors.value(metricIdx, QColor(125, 211, 252)));
+    pen.setWidthF(2.2);
+    series->setPen(pen);
+    chart->addSeries(series);
+    series->attachAxis(axisX);
+    series->attachAxis(axisY);
+
+    auto* chartView = new QChartView(chart, card);
+    chartView->setRenderHint(QPainter::Antialiasing, false);
+    chartView->setMinimumHeight(240);
+    chartView->setStyleSheet("background:transparent;border:none;");
+    chartView->installEventFilter(this);
+
+    cardLayout->addWidget(chartView);
+
+    m_historyCharts[metricIdx] = chart;
+    m_historyAxisXs[metricIdx] = axisX;
+    m_historyAxisYs[metricIdx] = axisY;
+    m_historyLineSeries[metricIdx] = series;
+    m_historyChartViews[metricIdx] = chartView;
 }
 
 
@@ -3261,13 +1771,27 @@ void MainWindow::onExportHistoryClicked() {
         return;
     }
 
-    auto* startEdit = ui->pageEnvironment->findChild<QDateTimeEdit*>("historyStartTime");
-    auto* endEdit   = ui->pageEnvironment->findChild<QDateTimeEdit*>("historyEndTime");
-    const QDateTime rangeStart = startEdit ? startEdit->dateTime() : QDateTime::currentDateTime().addDays(-1);
-    const QDateTime rangeEnd   = endEdit   ? endEdit->dateTime()   : QDateTime::currentDateTime();
+    const QDateTime rangeStart = m_historyStartCombo
+                                     ? m_historyStartCombo->dateTime()
+                                     : QDateTime::currentDateTime().addDays(-1);
+    const QDateTime rangeEnd = m_historyEndCombo
+                                   ? m_historyEndCombo->dateTime()
+                                   : QDateTime::currentDateTime();
 
     if (rangeStart >= rangeEnd) {
         customMessage(this, "导出失败", "起始时间必须早于结束时间，请重新选择。", true);
+        return;
+    }
+
+    bool hasCheckedMetric = false;
+    for (QCheckBox* check : std::as_const(m_historyMetricChecks)) {
+        if (check != nullptr && check->isChecked()) {
+            hasCheckedMetric = true;
+            break;
+        }
+    }
+    if (!hasCheckedMetric) {
+        customMessage(this, "导出失败", "请至少勾选一个指标。", true);
         return;
     }
 
@@ -3337,11 +1861,38 @@ void MainWindow::onExportHistoryClicked() {
     showExportSuccessDialog(this, QDir::toNativeSeparators(selectedPath));
 }
 
+void MainWindow::exportWaterPowerAnalysis(bool includeSingleDay, bool includeTrend) {
+    QString exportDir = QStringLiteral("D:/SystemData/WaterElec");
+    QDir().mkpath(exportDir);
+
+    const QString defaultFileName =
+        QStringLiteral("水电分析_%1.xlsx")
+            .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")));
+    const QString initialPath = QDir::toNativeSeparators(exportDir + "/" + defaultFileName);
+
+    const QString selectedPath = QFileDialog::getSaveFileName(
+        this,
+        QStringLiteral("导出当前分析"),
+        initialPath,
+        QStringLiteral("Excel 工作簿 (*.xlsx)"));
+
+    if (selectedPath.isEmpty()) {
+        return;
+    }
+
+    QString errorMessage;
+    if (!exportWaterPowerAnalysisAsXlsx(selectedPath, includeSingleDay, includeTrend, &errorMessage)) {
+        customMessage(this, QStringLiteral("导出失败"),
+                      QStringLiteral("无法生成 XLSX 文件：%1").arg(errorMessage), true);
+        return;
+    }
+
+    showExportSuccessDialog(this, QDir::toNativeSeparators(selectedPath));
+}
+
 bool MainWindow::exportHistoryAsXlsx(const QString& filePath, QString* errorMessage) {
     auto setError = [&](const QString& text) {
-        if (errorMessage != nullptr) {
-            *errorMessage = text;
-        }
+        if (errorMessage != nullptr) *errorMessage = text;
         return false;
     };
 
@@ -3359,6 +1910,323 @@ bool MainWindow::exportHistoryAsXlsx(const QString& filePath, QString* errorMess
         if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             return false;
         }
+        const QByteArray bytes = content.toUtf8();
+        const qint64 written = f.write(bytes);
+        f.close();
+        return written == bytes.size();
+    };
+
+    QVector<int> selectedMetrics;
+    for (int i = 0; i < m_historyMetricChecks.size(); ++i) {
+        if (m_historyMetricChecks[i] != nullptr && m_historyMetricChecks[i]->isChecked()) {
+            selectedMetrics.append(i);
+        }
+    }
+    if (selectedMetrics.isEmpty()) {
+        return setError(QStringLiteral("请至少勾选一个指标"));
+    }
+
+    const QStringList metricNames = {
+        QStringLiteral("温度"),
+        QStringLiteral("湿度"),
+        QStringLiteral("PM2.5"),
+        QStringLiteral("空气指数")
+    };
+    const QStringList metricUnits = {
+        QStringLiteral("℃"),
+        QStringLiteral("%"),
+        QStringLiteral("ug/m3"),
+        QString()
+    };
+
+    const QDateTime rangeStart = m_historyStartCombo ? m_historyStartCombo->dateTime()
+                                                     : QDateTime::currentDateTime().addDays(-1);
+    const QDateTime rangeEnd = m_historyEndCombo ? m_historyEndCombo->dateTime()
+                                                 : QDateTime::currentDateTime();
+    const QString exportTime = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    const QString rangeText = QStringLiteral("%1 ~ %2")
+                                  .arg(rangeStart.toString(QStringLiteral("yyyy-MM-dd HH:mm")),
+                                       rangeEnd.toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+
+    struct MetricSheet {
+        QString name;
+        QString unit;
+        QList<double> values;
+        double minVal = 0.0;
+        double maxVal = 0.0;
+        double avgVal = 0.0;
+        double latestVal = 0.0;
+        int count = 0;
+    };
+
+    QList<MetricSheet> sheetInfos;
+    for (int metricIdx : selectedMetrics) {
+        MetricSheet info;
+        info.name = metricNames.value(metricIdx);
+        info.unit = metricUnits.value(metricIdx);
+        double sum = 0.0;
+        double minVal = 1e18;
+        double maxVal = -1e18;
+        for (const auto& point : std::as_const(m_historyPoints)) {
+            double value = 0.0;
+            switch (metricIdx) {
+            case 0: value = point.temp; break;
+            case 1: value = point.humi; break;
+            case 2: value = point.pm25; break;
+            case 3: value = point.airIndex; break;
+            default: break;
+            }
+            info.values.append(value);
+            sum += value;
+            minVal = qMin(minVal, value);
+            maxVal = qMax(maxVal, value);
+            info.latestVal = value;
+            info.count++;
+        }
+        if (info.count > 0) {
+            info.minVal = minVal;
+            info.maxVal = maxVal;
+            info.avgVal = sum / info.count;
+        }
+        sheetInfos.append(info);
+    }
+
+    QTemporaryDir tempDir;
+    if (!tempDir.isValid()) {
+        return setError(QStringLiteral("无法创建临时目录"));
+    }
+
+    QDir root(tempDir.path());
+    root.mkpath(QStringLiteral("_rels"));
+    root.mkpath(QStringLiteral("docProps"));
+    root.mkpath(QStringLiteral("xl/_rels"));
+    root.mkpath(QStringLiteral("xl/worksheets"));
+
+    QString contentTypes =
+        QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                       "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                       "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+                       "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                       "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>");
+    for (int i = 0; i < sheetInfos.size(); ++i) {
+        contentTypes += QStringLiteral("<Override PartName=\"/xl/worksheets/sheet%1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>")
+                            .arg(i + 1);
+    }
+    contentTypes += QStringLiteral(
+        "<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>"
+        "<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>"
+        "<Override PartName=\"/docProps/app.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.extended-properties+xml\"/>"
+        "</Types>");
+
+    const QString rels =
+        QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                       "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                       "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>"
+                       "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/>"
+                       "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties\" Target=\"docProps/app.xml\"/>"
+                       "</Relationships>");
+
+    QString workbook =
+        QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                       "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
+                       "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>");
+    QString workbookRels =
+        QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                       "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
+    for (int i = 0; i < sheetInfos.size(); ++i) {
+        workbook += QStringLiteral("<sheet name=\"%1\" sheetId=\"%2\" r:id=\"rId%2\"/>")
+                        .arg(escapeXml(sheetInfos[i].name))
+                        .arg(i + 1);
+        workbookRels += QStringLiteral("<Relationship Id=\"rId%1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet%1.xml\"/>")
+                            .arg(i + 1);
+    }
+    workbook += QStringLiteral("</sheets></workbook>");
+    workbookRels += QStringLiteral("<Relationship Id=\"rId%1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>")
+                        .arg(sheetInfos.size() + 1);
+    workbookRels += QStringLiteral("</Relationships>");
+
+    const QString appXml =
+        QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                       "<Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\" "
+                       "xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\">"
+                       "<Application>System_UI</Application></Properties>");
+
+    const QString coreXml =
+        QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                       "<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" "
+                       "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+                       "xmlns:dcterms=\"http://purl.org/dc/terms/\" "
+                       "xmlns:dcmitype=\"http://purl.org/dc/dcmitype/\" "
+                       "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">"
+                       "<dc:title>历史数据报表</dc:title><dc:creator>System_UI</dc:creator>"
+                       "<cp:lastModifiedBy>System_UI</cp:lastModifiedBy>"
+                       "<dcterms:created xsi:type=\"dcterms:W3CDTF\">%1</dcterms:created>"
+                       "<dcterms:modified xsi:type=\"dcterms:W3CDTF\">%1</dcterms:modified>"
+                       "</cp:coreProperties>")
+            .arg(QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyy-MM-ddTHH:mm:ssZ")));
+
+    const QString stylesXml =
+        QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                       "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+                       "<fonts count=\"3\">"
+                       "<font><sz val=\"11\"/><name val=\"Microsoft YaHei\"/></font>"
+                       "<font><b/><sz val=\"16\"/><color rgb=\"FFFFFFFF\"/><name val=\"Microsoft YaHei\"/></font>"
+                       "<font><b/><sz val=\"11\"/><name val=\"Microsoft YaHei\"/></font>"
+                       "</fonts>"
+                       "<fills count=\"4\">"
+                       "<fill><patternFill patternType=\"none\"/></fill>"
+                       "<fill><patternFill patternType=\"gray125\"/></fill>"
+                       "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF1F4E78\"/><bgColor indexed=\"64\"/></patternFill></fill>"
+                       "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFDCE6F2\"/><bgColor indexed=\"64\"/></patternFill></fill>"
+                       "</fills>"
+                       "<borders count=\"2\">"
+                       "<border><left/><right/><top/><bottom/><diagonal/></border>"
+                       "<border><left style=\"thin\"/><right style=\"thin\"/><top style=\"thin\"/><bottom style=\"thin\"/><diagonal/></border>"
+                       "</borders>"
+                       "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>"
+                       "<cellXfs count=\"4\">"
+                       "<xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/>"
+                       "<xf numFmtId=\"0\" fontId=\"1\" fillId=\"2\" borderId=\"1\" xfId=\"0\" applyFont=\"1\" applyFill=\"1\" applyBorder=\"1\" applyAlignment=\"1\"><alignment horizontal=\"center\" vertical=\"center\"/></xf>"
+                       "<xf numFmtId=\"0\" fontId=\"2\" fillId=\"3\" borderId=\"1\" xfId=\"0\" applyFont=\"1\" applyFill=\"1\" applyBorder=\"1\" applyAlignment=\"1\"><alignment horizontal=\"center\" vertical=\"center\"/></xf>"
+                       "<xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"1\" xfId=\"0\" applyBorder=\"1\" applyAlignment=\"1\"><alignment horizontal=\"left\" vertical=\"center\"/></xf>"
+                       "</cellXfs>"
+                       "</styleSheet>");
+
+    auto inlineCell = [&](const QString& ref, const QString& text, int style) {
+        return QStringLiteral("<c r=\"%1\" t=\"inlineStr\" s=\"%2\"><is><t>%3</t></is></c>")
+            .arg(ref)
+            .arg(style)
+            .arg(escapeXml(text));
+    };
+    auto numberCell = [&](const QString& ref, double value, int style) {
+        return QStringLiteral("<c r=\"%1\" s=\"%2\"><v>%3</v></c>")
+            .arg(ref)
+            .arg(style)
+            .arg(QString::number(value, 'f', 1));
+    };
+
+    QStringList sheetXmls;
+    for (const MetricSheet& info : std::as_const(sheetInfos)) {
+        QString sheetXml =
+            QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                           "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+                           "<cols>"
+                           "<col min=\"1\" max=\"1\" width=\"10\" customWidth=\"1\"/>"
+                           "<col min=\"2\" max=\"2\" width=\"24\" customWidth=\"1\"/>"
+                           "<col min=\"3\" max=\"3\" width=\"18\" customWidth=\"1\"/>"
+                           "</cols><sheetData>");
+
+        int row = 1;
+        sheetXml += QStringLiteral("<row r=\"%1\" ht=\"30\" customHeight=\"1\">").arg(row);
+        sheetXml += inlineCell(QStringLiteral("A1"), QStringLiteral("%1历史数据报表").arg(info.name), 1);
+        sheetXml += QStringLiteral("</row>");
+        ++row;
+
+        auto addInfoRow = [&](const QString& key, const QString& value) {
+            sheetXml += QStringLiteral("<row r=\"%1\">").arg(row);
+            sheetXml += inlineCell(QStringLiteral("A%1").arg(row), key, 3);
+            sheetXml += inlineCell(QStringLiteral("B%1").arg(row), value, 3);
+            sheetXml += QStringLiteral("</row>");
+            ++row;
+        };
+        addInfoRow(QStringLiteral("导出时间"), exportTime);
+        addInfoRow(QStringLiteral("时间范围"), rangeText);
+        addInfoRow(QStringLiteral("记录数"), QString::number(info.count));
+        addInfoRow(QStringLiteral("最小值"), QStringLiteral("%1 %2").arg(QString::number(info.minVal, 'f', 1), info.unit));
+        addInfoRow(QStringLiteral("最大值"), QStringLiteral("%1 %2").arg(QString::number(info.maxVal, 'f', 1), info.unit));
+        addInfoRow(QStringLiteral("均值"), QStringLiteral("%1 %2").arg(QString::number(info.avgVal, 'f', 1), info.unit));
+        addInfoRow(QStringLiteral("最新值"), QStringLiteral("%1 %2").arg(QString::number(info.latestVal, 'f', 1), info.unit));
+
+        ++row;
+        sheetXml += QStringLiteral("<row r=\"%1\">").arg(row);
+        sheetXml += inlineCell(QStringLiteral("A%1").arg(row), QStringLiteral("序号"), 2);
+        sheetXml += inlineCell(QStringLiteral("B%1").arg(row), QStringLiteral("时间点"), 2);
+        sheetXml += inlineCell(QStringLiteral("C%1").arg(row), QStringLiteral("%1(%2)").arg(info.name, info.unit), 2);
+        sheetXml += QStringLiteral("</row>");
+        ++row;
+
+        for (int i = 0; i < m_historyPoints.size() && i < info.values.size(); ++i) {
+            sheetXml += QStringLiteral("<row r=\"%1\">").arg(row);
+            sheetXml += QStringLiteral("<c r=\"A%1\" s=\"3\"><v>%2</v></c>").arg(QString::number(row), QString::number(i + 1));
+            sheetXml += inlineCell(QStringLiteral("B%1").arg(row), m_historyPoints[i].timeLabel, 3);
+            sheetXml += numberCell(QStringLiteral("C%1").arg(row), info.values[i], 3);
+            sheetXml += QStringLiteral("</row>");
+            ++row;
+        }
+
+        sheetXml += QStringLiteral("</sheetData><mergeCells count=\"1\"><mergeCell ref=\"A1:C1\"/></mergeCells></worksheet>");
+        sheetXmls.append(sheetXml);
+    }
+
+    if (!writeUtf8File(root.filePath(QStringLiteral("[Content_Types].xml")), contentTypes) ||
+        !writeUtf8File(root.filePath(QStringLiteral("_rels/.rels")), rels) ||
+        !writeUtf8File(root.filePath(QStringLiteral("docProps/app.xml")), appXml) ||
+        !writeUtf8File(root.filePath(QStringLiteral("docProps/core.xml")), coreXml) ||
+        !writeUtf8File(root.filePath(QStringLiteral("xl/workbook.xml")), workbook) ||
+        !writeUtf8File(root.filePath(QStringLiteral("xl/_rels/workbook.xml.rels")), workbookRels) ||
+        !writeUtf8File(root.filePath(QStringLiteral("xl/styles.xml")), stylesXml)) {
+        return setError(QStringLiteral("临时文件写入失败"));
+    }
+    for (int i = 0; i < sheetXmls.size(); ++i) {
+        if (!writeUtf8File(root.filePath(QStringLiteral("xl/worksheets/sheet%1.xml").arg(i + 1)), sheetXmls[i])) {
+            return setError(QStringLiteral("临时文件写入失败"));
+        }
+    }
+
+    QFile::remove(filePath);
+    const QString zipPath = QFileInfo(filePath).absolutePath() + QStringLiteral("/.__tmp_history_export__.zip");
+    QFile::remove(zipPath);
+    QProcess zipProcess;
+    QStringList args;
+    args << QStringLiteral("-NoProfile")
+         << QStringLiteral("-Command")
+         << QStringLiteral("Compress-Archive -Path '%1\\*' -DestinationPath '%2' -Force")
+                .arg(QDir::toNativeSeparators(tempDir.path()).replace('\'', QStringLiteral("''")),
+                     QDir::toNativeSeparators(zipPath).replace('\'', QStringLiteral("''")));
+    zipProcess.start(QStringLiteral("powershell"), args);
+    if (!zipProcess.waitForFinished(20000)) {
+        zipProcess.kill();
+        return setError(QStringLiteral("打包超时"));
+    }
+    if (zipProcess.exitStatus() != QProcess::NormalExit || zipProcess.exitCode() != 0) {
+        return setError(QString::fromLocal8Bit(zipProcess.readAllStandardError()));
+    }
+    if (!QFile::exists(zipPath)) {
+        return setError(QStringLiteral("未生成 ZIP 临时文件"));
+    }
+    if (!QFile::rename(zipPath, filePath)) {
+        QFile::remove(filePath);
+        if (!QFile::rename(zipPath, filePath)) {
+            return setError(QStringLiteral("ZIP 重命名为 XLSX 失败"));
+        }
+    }
+    if (!QFile::exists(filePath)) {
+        return setError(QStringLiteral("未生成目标 XLSX 文件"));
+    }
+    return true;
+}
+
+bool MainWindow::exportWaterPowerAnalysisAsXlsx(const QString& filePath,
+                                                bool includeSingleDay,
+                                                bool includeTrend,
+                                                QString* errorMessage) {
+    auto setError = [&](const QString& text) {
+        if (errorMessage != nullptr) *errorMessage = text;
+        return false;
+    };
+
+    auto escapeXml = [](QString text) {
+        text.replace('&', "&amp;");
+        text.replace('<', "&lt;");
+        text.replace('>', "&gt;");
+        text.replace('"', "&quot;");
+        text.replace('\'', "&apos;");
+        return text;
+    };
+
+    auto writeUtf8File = [&](const QString& path, const QString& content) {
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
         const qint64 written = f.write(content.toUtf8());
         f.close();
         return written == content.toUtf8().size();
@@ -3375,26 +2243,132 @@ bool MainWindow::exportHistoryAsXlsx(const QString& filePath, QString* errorMess
         return name;
     };
 
-    QStringList statLines;
-    if (m_historyStatsLabel != nullptr) {
-        statLines = m_historyStatsLabel->text().split('\n', Qt::SkipEmptyParts);
+    const QDate selectedDay = m_wpAnalysisDateEdit ? m_wpAnalysisDateEdit->date() : QDate::currentDate().addDays(-1);
+    const int bucketMinutes = 60;
+    const int trendDays = (m_wpTrendDaysCombo && m_wpTrendDaysCombo->currentIndex() == 1) ? 15
+                        : (m_wpTrendDaysCombo && m_wpTrendDaysCombo->currentIndex() == 2) ? 30
+                        : 7;
+
+    struct SingleRow {
+        QString startTime;
+        QString endTime;
+        double powerMAh = 0.0;
+        double waterL = 0.0;
+        bool powerPeak = false;
+        bool waterPeak = false;
+    };
+    QList<SingleRow> singleRows;
+    double totalPowerMAh = 0.0, totalWaterL = 0.0, avgPower = 0.0, avgWater = 0.0, peakPower = 0.0, peakWater = 0.0;
+    QString peakPowerTime, peakWaterTime;
+    double activePowerHours = 0.0, activeWaterHours = 0.0;
+
+    if (includeSingleDay) {
+        const QDateTime dayStart(selectedDay, QTime(0, 0, 0));
+        const QDateTime dayEnd(selectedDay, QTime(23, 59, 59));
+        QString err;
+        const QList<SensorData> points = m_db ? m_db->queryDataRange(dayStart, dayEnd, &err) : QList<SensorData>{};
+        if (!err.isEmpty()) qDebug() << "[DB] export single-day query failed:" << err;
+
+        struct BucketUsage { double powerMAh = 0.0; double waterL = 0.0; };
+        QMap<int, BucketUsage> bucketMap;
+        for (int i = 0; i < points.size(); ++i) {
+            double dtSec = 1.0;
+            if (i + 1 < points.size()) {
+                dtSec = qBound(1.0, static_cast<double>(points[i].ts.secsTo(points[i + 1].ts)), 3600.0);
+            }
+            const int bucketIdx = qBound(0, points[i].ts.time().msecsSinceStartOfDay() / (bucketMinutes * 60 * 1000),
+                                         (24 * 60 / bucketMinutes) - 1);
+            BucketUsage& bucket = bucketMap[bucketIdx];
+            bucket.powerMAh += qMax(0.0, points[i].currentA * dtSec / 3600.0);
+            bucket.waterL += qMax(0.0, points[i].flowLMin * dtSec / 60.0);
+        }
+
+        const int bucketCount = 24 * 60 / bucketMinutes;
+        for (int i = 0; i < bucketCount; ++i) {
+            const QDateTime start = dayStart.addSecs(i * bucketMinutes * 60);
+            const QDateTime end = start.addSecs(bucketMinutes * 60);
+            const auto bucket = bucketMap.value(i);
+            totalPowerMAh += bucket.powerMAh;
+            totalWaterL += bucket.waterL;
+            peakPower = qMax(peakPower, bucket.powerMAh);
+            peakWater = qMax(peakWater, bucket.waterL);
+            singleRows.append({start.toString("HH:mm"),
+                               end.toString("HH:mm"),
+                               bucket.powerMAh,
+                               bucket.waterL,
+                               false,
+                               false});
+        }
+        if (bucketCount > 0) {
+            avgPower = totalPowerMAh / bucketCount;
+            avgWater = totalWaterL / bucketCount;
+        }
+        for (auto& row : singleRows) {
+            if (qFuzzyCompare(row.powerMAh + 1.0, peakPower + 1.0) && peakPower > 0.0) {
+                row.powerPeak = true;
+                peakPowerTime = row.startTime;
+            }
+            if (qFuzzyCompare(row.waterL + 1.0, peakWater + 1.0) && peakWater > 0.0) {
+                row.waterPeak = true;
+                peakWaterTime = row.startTime;
+            }
+            if (row.powerMAh > 0.01) activePowerHours += bucketMinutes / 60.0;
+            if (row.waterL > 0.001) activeWaterHours += bucketMinutes / 60.0;
+        }
     }
-    const QString summary = (m_historySummaryLabel != nullptr)
-                                ? m_historySummaryLabel->text()
-                                : "趋势整体平稳。";
-    const QString exportTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
-    auto* es = ui->pageEnvironment->findChild<QDateTimeEdit*>("historyStartTime");
-    auto* ee = ui->pageEnvironment->findChild<QDateTimeEdit*>("historyEndTime");
-    const QDateTime esStart = es ? es->dateTime() : QDateTime::currentDateTime().addDays(-1);
-    const QDateTime esEnd   = ee ? ee->dateTime()   : QDateTime::currentDateTime();
-    const QString rangeText = QString("%1 ~ %2")
-        .arg(esStart.toString("yyyyMMdd-HHmm"), esEnd.toString("yyyyMMdd-HHmm"));
+
+    struct TrendRow {
+        QString day;
+        double powerMAh = 0.0;
+        double waterL = 0.0;
+        bool powerPeak = false;
+        bool waterPeak = false;
+    };
+    QList<TrendRow> trendRows;
+    double trendTotalPower = 0.0, trendTotalWater = 0.0, trendAvgPower = 0.0, trendAvgWater = 0.0;
+    double trendPeakPower = 0.0, trendPeakWater = 0.0;
+    QString trendPeakPowerDay, trendPeakWaterDay;
+
+    if (includeTrend) {
+        const QDate trendEnd = QDate::currentDate().addDays(-1);
+        const QDate trendStart = trendEnd.addDays(-(trendDays - 1));
+        QString err;
+        const QList<DatabaseManager::DailyResourceUsageEntry> rows =
+            m_db ? m_db->queryDailyResourceUsage(trendStart, trendEnd, &err) : QList<DatabaseManager::DailyResourceUsageEntry>{};
+        if (!err.isEmpty()) qDebug() << "[DB] export trend query failed:" << err;
+        QMap<QString, DatabaseManager::DailyResourceUsageEntry> trendMap;
+        for (const auto& row : rows) trendMap.insert(row.day, row);
+        for (int i = 0; i < trendDays; ++i) {
+            const QDate day = trendStart.addDays(i);
+            const auto row = trendMap.value(day.toString(Qt::ISODate), DatabaseManager::DailyResourceUsageEntry{});
+            TrendRow tr;
+            tr.day = day.toString("yyyy-MM-dd");
+            tr.powerMAh = row.powerMAh;
+            tr.waterL = row.waterCL / 100.0;
+            trendRows.append(tr);
+            trendTotalPower += tr.powerMAh;
+            trendTotalWater += tr.waterL;
+            trendPeakPower = qMax(trendPeakPower, tr.powerMAh);
+            trendPeakWater = qMax(trendPeakWater, tr.waterL);
+        }
+        if (trendDays > 0) {
+            trendAvgPower = trendTotalPower / trendDays;
+            trendAvgWater = trendTotalWater / trendDays;
+        }
+        for (auto& row : trendRows) {
+            if (qFuzzyCompare(row.powerMAh + 1.0, trendPeakPower + 1.0) && trendPeakPower > 0.0) {
+                row.powerPeak = true;
+                trendPeakPowerDay = row.day;
+            }
+            if (qFuzzyCompare(row.waterL + 1.0, trendPeakWater + 1.0) && trendPeakWater > 0.0) {
+                row.waterPeak = true;
+                trendPeakWaterDay = row.day;
+            }
+        }
+    }
 
     QTemporaryDir tempDir;
-    if (!tempDir.isValid()) {
-        return setError("无法创建临时目录");
-    }
-
+    if (!tempDir.isValid()) return setError(QStringLiteral("无法创建临时目录"));
     QDir root(tempDir.path());
     root.mkpath("_rels");
     root.mkpath("docProps");
@@ -3406,16 +2380,13 @@ bool MainWindow::exportHistoryAsXlsx(const QString& filePath, QString* errorMess
         "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
         "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
         "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
-        "<Override PartName=\"/xl/workbook.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
-        "<Override PartName=\"/xl/worksheets/sheet1.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
-        "<Override PartName=\"/xl/styles.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>"
-        "<Override PartName=\"/docProps/core.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>"
-        "<Override PartName=\"/docProps/app.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.extended-properties+xml\"/>"
+        "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
+        "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
+        "<Override PartName=\"/xl/worksheets/sheet2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
+        "<Override PartName=\"/xl/worksheets/sheet3.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
+        "<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>"
+        "<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>"
+        "<Override PartName=\"/docProps/app.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.extended-properties+xml\"/>"
         "</Types>";
 
     const QString rels =
@@ -3428,23 +2399,28 @@ bool MainWindow::exportHistoryAsXlsx(const QString& filePath, QString* errorMess
 
     const QString workbook =
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
-        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
-        "<sheets><sheet name=\"历史数据报表\" sheetId=\"1\" r:id=\"rId1\"/></sheets>"
+        "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
+        "<sheets>"
+        "<sheet name=\"导出说明\" sheetId=\"1\" r:id=\"rId1\"/>"
+        "<sheet name=\"单日分时\" sheetId=\"2\" r:id=\"rId2\"/>"
+        "<sheet name=\"多日趋势\" sheetId=\"3\" r:id=\"rId3\"/>"
+        "</sheets>"
         "</workbook>";
 
     const QString workbookRels =
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
         "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
         "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>"
-        "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>"
+        "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet2.xml\"/>"
+        "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet3.xml\"/>"
+        "<Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>"
         "</Relationships>";
 
     const QString appXml =
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
         "<Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\" "
         "xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\">"
-        "<Application>System_UI</Application>"
+        "<Application>OpenAI Codex</Application>"
         "</Properties>";
 
     const QString coreXml =
@@ -3454,13 +2430,14 @@ bool MainWindow::exportHistoryAsXlsx(const QString& filePath, QString* errorMess
                 "xmlns:dcterms=\"http://purl.org/dc/terms/\" "
                 "xmlns:dcmitype=\"http://purl.org/dc/dcmitype/\" "
                 "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">"
-                "<dc:title>历史数据报表</dc:title>"
-                "<dc:creator>System_UI</dc:creator>"
-                "<cp:lastModifiedBy>System_UI</cp:lastModifiedBy>"
-                "<dcterms:created xsi:type=\"dcterms:W3CDTF\">%1</dcterms:created>"
-                "<dcterms:modified xsi:type=\"dcterms:W3CDTF\">%1</dcterms:modified>"
+                "<dc:title>%1</dc:title>"
+                "<dc:creator>OpenAI Codex</dc:creator>"
+                "<cp:lastModifiedBy>OpenAI Codex</cp:lastModifiedBy>"
+                "<dcterms:created xsi:type=\"dcterms:W3CDTF\">%2</dcterms:created>"
+                "<dcterms:modified xsi:type=\"dcterms:W3CDTF\">%2</dcterms:modified>"
                 "</cp:coreProperties>")
-            .arg(QDateTime::currentDateTimeUtc().toString("yyyy-MM-ddTHH:mm:ssZ"));
+            .arg(escapeXml(QStringLiteral("水电分析导出")),
+                 QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
 
     const QString stylesXml =
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -3473,8 +2450,8 @@ bool MainWindow::exportHistoryAsXlsx(const QString& filePath, QString* errorMess
         "<fills count=\"4\">"
         "<fill><patternFill patternType=\"none\"/></fill>"
         "<fill><patternFill patternType=\"gray125\"/></fill>"
-        "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF1F4E78\"/><bgColor indexed=\"64\"/></patternFill></fill>"
-        "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFDCE6F2\"/><bgColor indexed=\"64\"/></patternFill></fill>"
+        "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF0F5FA8\"/><bgColor indexed=\"64\"/></patternFill></fill>"
+        "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFDDEBFF\"/><bgColor indexed=\"64\"/></patternFill></fill>"
         "</fills>"
         "<borders count=\"2\">"
         "<border><left/><right/><top/><bottom/><diagonal/></border>"
@@ -3486,138 +2463,127 @@ bool MainWindow::exportHistoryAsXlsx(const QString& filePath, QString* errorMess
         "<xf numFmtId=\"0\" fontId=\"1\" fillId=\"2\" borderId=\"1\" xfId=\"0\" applyFont=\"1\" applyFill=\"1\" applyBorder=\"1\" applyAlignment=\"1\"><alignment horizontal=\"center\" vertical=\"center\"/></xf>"
         "<xf numFmtId=\"0\" fontId=\"2\" fillId=\"3\" borderId=\"1\" xfId=\"0\" applyFont=\"1\" applyFill=\"1\" applyBorder=\"1\" applyAlignment=\"1\"><alignment horizontal=\"center\" vertical=\"center\"/></xf>"
         "<xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"1\" xfId=\"0\" applyBorder=\"1\" applyAlignment=\"1\"><alignment horizontal=\"left\" vertical=\"center\"/></xf>"
-        "<xf numFmtId=\"0\" fontId=\"2\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyFont=\"1\" applyAlignment=\"1\"><alignment horizontal=\"left\" vertical=\"center\"/></xf>"
         "<xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"1\" xfId=\"0\" applyBorder=\"1\" applyAlignment=\"1\"><alignment horizontal=\"left\" vertical=\"top\" wrapText=\"1\"/></xf>"
+        "<xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"1\" xfId=\"0\" applyBorder=\"1\" applyAlignment=\"1\"><alignment horizontal=\"center\" vertical=\"center\"/></xf>"
         "</cellXfs>"
-        "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>"
         "</styleSheet>";
-
-    QString sheetXml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
-        "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">";
-
-    // 计算列宽（近似自动列宽）
-    QVector<int> maxChars = {4, 8, 8, 8, 8};
-    for (int i = 0; i < m_historyPoints.size(); ++i) {
-        const auto& point = m_historyPoints[i];
-        maxChars[0] = qMax(maxChars[0], QString::number(i + 1).size());
-        maxChars[1] = qMax(maxChars[1], point.timeLabel.size());
-        maxChars[2] = qMax(maxChars[2], QString::number(point.temp, 'f', 1).size() + 2);
-        maxChars[3] = qMax(maxChars[3], QString::number(point.humi, 'f', 1).size() + 2);
-        maxChars[4] = qMax(maxChars[4], QString::number(point.current, 'f', 1).size() + 2);
-    }
-    maxChars[1] = qMax(maxChars[1], summary.size());
-
-    sheetXml += "<cols>";
-    for (int i = 0; i < maxChars.size(); ++i) {
-        const double width = qBound(10.0, maxChars[i] * 1.25 + 2.0, 52.0);
-        sheetXml += QString("<col min=\"%1\" max=\"%1\" width=\"%2\" customWidth=\"1\"/>")
-                        .arg(i + 1)
-                        .arg(QString::number(width, 'f', 2));
-    }
-    sheetXml += "</cols>";
 
     auto inlineCell = [&](const QString& ref, const QString& text, int style) {
         return QString("<c r=\"%1\" t=\"inlineStr\" s=\"%2\"><is><t>%3</t></is></c>")
-            .arg(ref)
-            .arg(style)
-            .arg(escapeXml(text));
+            .arg(ref, QString::number(style), escapeXml(text));
     };
     auto numberCell = [&](const QString& ref, double value, int style) {
         return QString("<c r=\"%1\" s=\"%2\"><v>%3</v></c>")
-            .arg(ref)
-            .arg(style)
-            .arg(QString::number(value, 'f', 1));
+            .arg(ref, QString::number(style), QString::number(value, 'f', 3));
     };
 
+    QString sheet1 =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+        "<sheetData>";
     int row = 1;
-    sheetXml += "<sheetData>";
+    auto addInfo = [&](const QString& key, const QString& value) {
+        sheet1 += QString("<row r=\"%1\">").arg(row);
+        sheet1 += inlineCell(QString("A%1").arg(row), key, 3);
+        sheet1 += inlineCell(QString("B%1").arg(row), value, 3);
+        sheet1 += "</row>";
+        row++;
+    };
+    sheet1 += QString("<row r=\"1\" ht=\"28\" customHeight=\"1\">%1</row>").arg(inlineCell("A1", QStringLiteral("水电分析导出说明"), 1));
+    row = 2;
+    addInfo(QStringLiteral("导出时间"), QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss"));
+    addInfo(QStringLiteral("选定日期"), selectedDay.toString("yyyy-MM-dd"));
+    addInfo(QStringLiteral("分时粒度"), QString::number(bucketMinutes) + QStringLiteral(" 分钟"));
+    addInfo(QStringLiteral("趋势天数"), QString::number(trendDays) + QStringLiteral(" 天"));
+    sheet1 += "</sheetData></worksheet>";
 
-    sheetXml += QString("<row r=\"%1\" ht=\"30\" customHeight=\"1\">").arg(row);
-    sheetXml += inlineCell("A1", "灾后临时安置点智慧管理系统 历史数据报表", 1);
-    sheetXml += "</row>";
-    ++row;
-
-    sheetXml += QString("<row r=\"%1\">").arg(row);
-    sheetXml += inlineCell(QString("A%1").arg(row), "导出时间", 4);
-    sheetXml += inlineCell(QString("B%1").arg(row), exportTime, 3);
-    sheetXml += "</row>";
-    ++row;
-
-    sheetXml += QString("<row r=\"%1\">").arg(row);
-    sheetXml += inlineCell(QString("A%1").arg(row), "时间范围", 4);
-    sheetXml += inlineCell(QString("B%1").arg(row), rangeText, 3);
-    sheetXml += "</row>";
-    ++row;
-
-    ++row;  // 绌鸿
-
-    sheetXml += QString("<row r=\"%1\">").arg(row);
-    sheetXml += inlineCell(QString("A%1").arg(row), "统计信息", 4);
-    sheetXml += "</row>";
-    ++row;
-
-    for (const QString& line : std::as_const(statLines)) {
-        const QStringList kv = line.split(QStringLiteral("："));
-        const QString key = kv.value(0);
-        const QString value = (kv.size() > 1) ? kv.mid(1).join("：") : "";
-        sheetXml += QString("<row r=\"%1\">").arg(row);
-        sheetXml += inlineCell(QString("A%1").arg(row), key, 3);
-        sheetXml += inlineCell(QString("B%1").arg(row), value, 3);
-        sheetXml += "</row>";
-        ++row;
+    QString sheet2 =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+        "<sheetData>";
+    row = 1;
+    sheet2 += QString("<row r=\"1\">%1%2%3%4%5%6%7</row>")
+                  .arg(inlineCell("A1", QStringLiteral("序号"), 2),
+                       inlineCell("B1", QStringLiteral("开始时间"), 2),
+                       inlineCell("C1", QStringLiteral("结束时间"), 2),
+                       inlineCell("D1", QStringLiteral("用电(mAh)"), 2),
+                       inlineCell("E1", QStringLiteral("用水(L)"), 2),
+                       inlineCell("F1", QStringLiteral("是否用电峰值"), 2),
+                       inlineCell("G1", QStringLiteral("是否用水峰值"), 2));
+    row = 2;
+    if (includeSingleDay) {
+        for (int i = 0; i < singleRows.size(); ++i, ++row) {
+            const auto& r = singleRows[i];
+            sheet2 += QString("<row r=\"%1\">").arg(row);
+            sheet2 += numberCell(QString("A%1").arg(row), i + 1, 5);
+            sheet2 += inlineCell(QString("B%1").arg(row), r.startTime, 3);
+            sheet2 += inlineCell(QString("C%1").arg(row), r.endTime, 3);
+            sheet2 += numberCell(QString("D%1").arg(row), r.powerMAh, 3);
+            sheet2 += numberCell(QString("E%1").arg(row), r.waterL, 3);
+            sheet2 += inlineCell(QString("F%1").arg(row), r.powerPeak ? QStringLiteral("是") : QStringLiteral(""), 5);
+            sheet2 += inlineCell(QString("G%1").arg(row), r.waterPeak ? QStringLiteral("是") : QStringLiteral(""), 5);
+            sheet2 += "</row>";
+        }
+        row++;
+        auto addSummary2 = [&](const QString& key, const QString& value) {
+            sheet2 += QString("<row r=\"%1\">").arg(row);
+            sheet2 += inlineCell(QString("A%1").arg(row), key, 3);
+            sheet2 += inlineCell(QString("B%1").arg(row), value, 3);
+            sheet2 += "</row>";
+            row++;
+        };
+        addSummary2(QStringLiteral("单日总用电"), QString::number(totalPowerMAh, 'f', 0) + QStringLiteral(" mAh"));
+        addSummary2(QStringLiteral("单日总用水"), QString::number(totalWaterL, 'f', 1) + QStringLiteral(" L"));
+        addSummary2(QStringLiteral("平均每时段用电"), QString::number(avgPower, 'f', 1) + QStringLiteral(" mAh"));
+        addSummary2(QStringLiteral("平均每时段用水"), QString::number(avgWater, 'f', 2) + QStringLiteral(" L"));
+        addSummary2(QStringLiteral("用电峰值时段"), peakPowerTime.isEmpty() ? QStringLiteral("--") : peakPowerTime);
+        addSummary2(QStringLiteral("用水峰值时段"), peakWaterTime.isEmpty() ? QStringLiteral("--") : peakWaterTime);
+        addSummary2(QStringLiteral("用电活跃时长"), QString::number(activePowerHours, 'f', 1) + QStringLiteral(" 小时"));
+        addSummary2(QStringLiteral("用水活跃时长"), QString::number(activeWaterHours, 'f', 1) + QStringLiteral(" 小时"));
     }
+    sheet2 += "</sheetData></worksheet>";
 
-    ++row;  // 绌鸿
-
-    sheetXml += QString("<row r=\"%1\">").arg(row);
-    sheetXml += inlineCell(QString("A%1").arg(row), "趋势摘要", 4);
-    sheetXml += "</row>";
-    ++row;
-
-    sheetXml += QString("<row r=\"%1\" ht=\"72\" customHeight=\"1\">").arg(row);
-    sheetXml += inlineCell(QString("A%1").arg(row), summary, 5);
-    sheetXml += "</row>";
-    ++row;
-
-    ++row;  // 绌鸿
-
-    const QStringList headers = {"序号", "时间点", "温度(℃)", "湿度(%)", "电流(A)"};
-    sheetXml += QString("<row r=\"%1\" ht=\"22\" customHeight=\"1\">").arg(row);
-    for (int i = 0; i < headers.size(); ++i) {
-        const QString ref = QString("%1%2").arg(colName(i + 1), QString::number(row));
-        sheetXml += inlineCell(ref, headers[i], 2);
+    QString sheet3 =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+        "<sheetData>";
+    row = 1;
+    sheet3 += QString("<row r=\"1\">%1%2%3%4%5%6</row>")
+                  .arg(inlineCell("A1", QStringLiteral("序号"), 2),
+                       inlineCell("B1", QStringLiteral("日期"), 2),
+                       inlineCell("C1", QStringLiteral("日用电(mAh)"), 2),
+                       inlineCell("D1", QStringLiteral("日用水(L)"), 2),
+                       inlineCell("E1", QStringLiteral("是否用电峰值日"), 2),
+                       inlineCell("F1", QStringLiteral("是否用水峰值日"), 2));
+    row = 2;
+    if (includeTrend) {
+        for (int i = 0; i < trendRows.size(); ++i, ++row) {
+            const auto& r = trendRows[i];
+            sheet3 += QString("<row r=\"%1\">").arg(row);
+            sheet3 += numberCell(QString("A%1").arg(row), i + 1, 5);
+            sheet3 += inlineCell(QString("B%1").arg(row), r.day, 3);
+            sheet3 += numberCell(QString("C%1").arg(row), r.powerMAh, 3);
+            sheet3 += numberCell(QString("D%1").arg(row), r.waterL, 3);
+            sheet3 += inlineCell(QString("E%1").arg(row), r.powerPeak ? QStringLiteral("是") : QStringLiteral(""), 5);
+            sheet3 += inlineCell(QString("F%1").arg(row), r.waterPeak ? QStringLiteral("是") : QStringLiteral(""), 5);
+            sheet3 += "</row>";
+        }
+        row++;
+        auto addSummary3 = [&](const QString& key, const QString& value) {
+            sheet3 += QString("<row r=\"%1\">").arg(row);
+            sheet3 += inlineCell(QString("A%1").arg(row), key, 3);
+            sheet3 += inlineCell(QString("B%1").arg(row), value, 3);
+            sheet3 += "</row>";
+            row++;
+        };
+        addSummary3(QStringLiteral("区间总用电"), QString::number(trendTotalPower, 'f', 0) + QStringLiteral(" mAh"));
+        addSummary3(QStringLiteral("区间总用水"), QString::number(trendTotalWater, 'f', 1) + QStringLiteral(" L"));
+        addSummary3(QStringLiteral("日均用电"), QString::number(trendAvgPower, 'f', 1) + QStringLiteral(" mAh"));
+        addSummary3(QStringLiteral("日均用水"), QString::number(trendAvgWater, 'f', 1) + QStringLiteral(" L"));
+        addSummary3(QStringLiteral("用电峰值日"), trendPeakPowerDay.isEmpty() ? QStringLiteral("--") : trendPeakPowerDay);
+        addSummary3(QStringLiteral("用水峰值日"), trendPeakWaterDay.isEmpty() ? QStringLiteral("--") : trendPeakWaterDay);
     }
-    sheetXml += "</row>";
-    ++row;
-
-    for (int i = 0; i < m_historyPoints.size(); ++i) {
-        const auto& point = m_historyPoints[i];
-        sheetXml += QString("<row r=\"%1\">").arg(row);
-        sheetXml += QString("<c r=\"A%1\" s=\"3\"><v>%2</v></c>").arg(QString::number(row), QString::number(i + 1));
-        sheetXml += inlineCell(QString("B%1").arg(row), point.timeLabel, 3);
-        sheetXml += numberCell(QString("C%1").arg(row), point.temp, 3);
-        sheetXml += numberCell(QString("D%1").arg(row), point.humi, 3);
-        sheetXml += numberCell(QString("E%1").arg(row), point.current, 3);
-        sheetXml += "</row>";
-        ++row;
-    }
-
-    sheetXml += "</sheetData>";
-
-    // 合并单元格：主标题、统计标题、趋势标题、趋势内容
-    const int statsTitleRow = 5;
-    const int summaryTitleRow = statsTitleRow + statLines.size() + 2;
-    const int summaryValueRow = summaryTitleRow + 1;
-    sheetXml += "<mergeCells count=\"4\">";
-    sheetXml += "<mergeCell ref=\"A1:E1\"/>";
-    sheetXml += QString("<mergeCell ref=\"A%1:E%1\"/>").arg(statsTitleRow);
-    sheetXml += QString("<mergeCell ref=\"A%1:E%1\"/>").arg(summaryTitleRow);
-    sheetXml += QString("<mergeCell ref=\"A%1:E%1\"/>").arg(summaryValueRow);
-    sheetXml += "</mergeCells>";
-
-    sheetXml += "</worksheet>";
+    sheet3 += "</sheetData></worksheet>";
 
     if (!writeUtf8File(root.filePath("[Content_Types].xml"), contentTypes) ||
         !writeUtf8File(root.filePath("_rels/.rels"), rels) ||
@@ -3626,12 +2592,14 @@ bool MainWindow::exportHistoryAsXlsx(const QString& filePath, QString* errorMess
         !writeUtf8File(root.filePath("xl/workbook.xml"), workbook) ||
         !writeUtf8File(root.filePath("xl/_rels/workbook.xml.rels"), workbookRels) ||
         !writeUtf8File(root.filePath("xl/styles.xml"), stylesXml) ||
-        !writeUtf8File(root.filePath("xl/worksheets/sheet1.xml"), sheetXml)) {
-        return setError("临时文件写入失败");
+        !writeUtf8File(root.filePath("xl/worksheets/sheet1.xml"), sheet1) ||
+        !writeUtf8File(root.filePath("xl/worksheets/sheet2.xml"), sheet2) ||
+        !writeUtf8File(root.filePath("xl/worksheets/sheet3.xml"), sheet3)) {
+        return setError(QStringLiteral("临时文件写入失败"));
     }
 
     QFile::remove(filePath);
-    const QString zipPath = QFileInfo(filePath).absolutePath() + "/.__tmp_history_export__.zip";
+    const QString zipPath = QFileInfo(filePath).absolutePath() + "/.__tmp_water_elec_export__.zip";
     QFile::remove(zipPath);
     QProcess zipProcess;
     QStringList args;
@@ -3643,22 +2611,19 @@ bool MainWindow::exportHistoryAsXlsx(const QString& filePath, QString* errorMess
     zipProcess.start("powershell", args);
     if (!zipProcess.waitForFinished(20000)) {
         zipProcess.kill();
-        return setError("打包超时");
+        return setError(QStringLiteral("打包超时"));
     }
     if (zipProcess.exitStatus() != QProcess::NormalExit || zipProcess.exitCode() != 0) {
         return setError(QString::fromLocal8Bit(zipProcess.readAllStandardError()));
     }
     if (!QFile::exists(zipPath)) {
-        return setError("未生成 ZIP 临时文件");
+        return setError(QStringLiteral("未生成 ZIP 临时文件"));
     }
     if (!QFile::rename(zipPath, filePath)) {
         QFile::remove(filePath);
         if (!QFile::rename(zipPath, filePath)) {
-            return setError("ZIP 重命名为 XLSX 失败");
+            return setError(QStringLiteral("ZIP 重命名为 XLSX 失败"));
         }
-    }
-    if (!QFile::exists(filePath)) {
-        return setError("未生成目标 XLSX 文件");
     }
     return true;
 }
@@ -3817,301 +2782,6 @@ void MainWindow::onAlarmHandledClicked(int alarmId) {
     }
 }
 
-void MainWindow::refreshDeviceTable() {
-    // 更新设备状态一览表
-    auto* deviceTbl = ui->pageWaterPower->findChild<QTableWidget*>("deviceStatusTable");
-    if (deviceTbl) {
-        deviceTbl->setRowCount(0);
-        for (int i = 0; i < m_devices.size(); ++i) {
-            const auto& d = m_devices[i];
-            deviceTbl->insertRow(i);
-            deviceTbl->setItem(i, 0, new QTableWidgetItem(d.id));
-            deviceTbl->setItem(i, 1, new QTableWidgetItem(d.name));
-            deviceTbl->setItem(i, 2, new QTableWidgetItem(d.type));
-            auto* statusItem = new QTableWidgetItem(d.status);
-            if (d.status == "告警") statusItem->setForeground(QColor(239, 68, 68));
-            else if (d.status == "预警") statusItem->setForeground(QColor(245, 158, 11));
-            else if (d.status == "离线") statusItem->setForeground(QColor(148, 163, 184));
-            else statusItem->setForeground(QColor(34, 197, 94));
-            deviceTbl->setItem(i, 3, statusItem);
-            deviceTbl->setItem(i, 4, new QTableWidgetItem(
-                QString("%1 %2").arg(QString::number(d.latestValue, 'f', 1), d.latestValueUnit)));
-            deviceTbl->setItem(i, 5, new QTableWidgetItem(QString("%1%").arg(d.battery)));
-        }
-    }
-
-    // 更新远程设备下拉
-    const QString selectedDeviceId = (m_remoteDeviceCombo != nullptr)
-                                         ? m_remoteDeviceCombo->currentData().toString()
-                                         : QString();
-
-    if (m_remoteDeviceCombo != nullptr) {
-        m_remoteDeviceCombo->blockSignals(true);
-        m_remoteDeviceCombo->clear();
-        for (const auto& device : std::as_const(m_devices)) {
-            m_remoteDeviceCombo->addItem(
-                QString("%1 - %2").arg(device.name, device.id),
-                device.id);
-        }
-        int targetIndex = -1;
-        if (!selectedDeviceId.isEmpty()) {
-            targetIndex = m_remoteDeviceCombo->findData(selectedDeviceId);
-        }
-        if (targetIndex < 0 && m_remoteDeviceCombo->count() > 0) {
-            targetIndex = 0;
-        }
-        if (targetIndex >= 0) {
-            m_remoteDeviceCombo->setCurrentIndex(targetIndex);
-        }
-        m_remoteDeviceCombo->blockSignals(false);
-    }
-}
-
-void MainWindow::onUpdateWaterPowerData() {
-    if (m_devices.isEmpty()) {
-        return;
-    }
-
-    const int row = QRandomGenerator::global()->bounded(m_devices.size());
-    m_devices[row].battery = qMax(18, m_devices[row].battery - QRandomGenerator::global()->bounded(2));
-    if (QRandomGenerator::global()->bounded(10) > 7) {
-        m_devices[row].status = (m_devices[row].status == "运行中") ? "维护中" : "运行中";
-    }
-    const double delta = QRandomGenerator::global()->bounded(-60, 61) / 10.0;
-    m_devices[row].latestValue = qMax(0.0, m_devices[row].latestValue + delta);
-    const bool thresholdExceeded =
-        (m_devices[row].warningUpper > m_devices[row].warningLower && m_devices[row].latestValue > m_devices[row].warningUpper)
-        || (m_devices[row].warningLower > 0.0 && m_devices[row].latestValue < m_devices[row].warningLower);
-    if (thresholdExceeded) {
-        m_devices[row].status = "波动";
-    } else if (m_devices[row].status == "波动") {
-        m_devices[row].status = "运行中";
-    }
-    refreshDeviceTable();
-}
-
-void MainWindow::onAddDeviceClicked() {
-    const int nextId = m_devices.size() + 1;
-    const QString defaultId = QString("NEW-%1").arg(nextId, 3, 10, QChar('0'));
-
-    bool ok = false;
-    const QString deviceId = QInputDialog::getText(
-        this, "添加新设备", "设备 ID（必填）", QLineEdit::Normal, defaultId, &ok).trimmed();
-    if (!ok) {
-        return;
-    }
-    if (deviceId.isEmpty()) {
-        customMessage(this, "添加失败", "设备 ID 不能为空。", true);
-        return;
-    }
-    for (const auto& item : std::as_const(m_devices)) {
-        if (item.id.compare(deviceId, Qt::CaseInsensitive) == 0) {
-            customMessage(this, "添加失败", "设备 ID 已存在，请使用其他 ID。", true);
-            return;
-        }
-    }
-
-    const QString deviceName = QInputDialog::getText(
-        this, "添加新设备", "设备名称（必填）", QLineEdit::Normal,
-        QString("新设备%1").arg(nextId), &ok).trimmed();
-    if (!ok) {
-        return;
-    }
-    if (deviceName.isEmpty()) {
-        customMessage(this, "添加失败", "设备名称不能为空。", true);
-        return;
-    }
-
-    const QStringList typeOptions = {
-        QStringLiteral("温度传感器"),
-        QStringLiteral("湿度传感器"),
-        QStringLiteral("水流传感器"),
-        QStringLiteral("电流传感器"),
-        QStringLiteral("PM2.5 传感器"),
-        QStringLiteral("新传感器"),
-    };
-    const QString deviceType = QInputDialog::getItem(
-        this, "添加新设备", "设备类型（必选）", typeOptions, 5, false, &ok).trimmed();
-    if (!ok || deviceType.isEmpty()) {
-        return;
-    }
-
-    const QString installLocation = QInputDialog::getText(
-        this, "添加新设备", "安装位置（必填）", QLineEdit::Normal, QStringLiteral("未分配"), &ok).trimmed();
-    if (!ok) {
-        return;
-    }
-    if (installLocation.isEmpty()) {
-        customMessage(this, "添加失败", "安装位置不能为空。", true);
-        return;
-    }
-
-    const int sampleInterval = QInputDialog::getInt(
-        this, "添加新设备", "采样间隔（秒）", 5, 1, 300, 1, &ok);
-    if (!ok) {
-        return;
-    }
-
-    m_devices.append({deviceId,
-                      deviceName,
-                      deviceType,
-                      installLocation,
-                      "运行中",
-                      100,
-                      "v1.0.0",
-                      true,
-                      sampleInterval,
-                      0.0,
-                      deviceType.contains(QStringLiteral("湿度")) ? "%" :
-                          (deviceType.contains(QStringLiteral("电流")) ? QStringLiteral("A") :
-                              (deviceType.contains(QStringLiteral("PM2.5")) ? QStringLiteral("ug/m3") :
-                                  (deviceType.contains(QStringLiteral("水流")) ? QStringLiteral("L/min")
-                                                                             : QStringLiteral("℃")))),
-                      80.0,
-                      0.0,
-                      true,
-                      false,
-                      false});
-    syncDeviceInfoToDatabase();
-    buildDevicePage();
-    customMessage(this, "添加成功", QString("设备 %1（%2）已添加。").arg(deviceName, deviceId));
-}
-
-void MainWindow::onRemoveDeviceClicked() {
-    if (m_devices.isEmpty()) {
-        customMessage(this, "提示", "当前没有可移除的设备。");
-        return;
-    }
-
-    QStringList deviceDisplayList;
-    deviceDisplayList.reserve(m_devices.size());
-    for (const auto& device : std::as_const(m_devices)) {
-        deviceDisplayList.append(QString("%1 | %2 | %3")
-                                     .arg(device.id, device.name, device.status));
-    }
-
-    bool ok = false;
-    const QString selectedDisplay = QInputDialog::getItem(
-        this,
-        "移除设备",
-        "请选择要移除的设备：",
-        deviceDisplayList,
-        0,
-        false,
-        &ok);
-    if (!ok || selectedDisplay.isEmpty()) {
-        return;
-    }
-
-    const QString selectedId = selectedDisplay.section(" | ", 0, 0);
-    int removeIndex = -1;
-    for (int i = 0; i < m_devices.size(); ++i) {
-        if (m_devices[i].id == selectedId) {
-            removeIndex = i;
-            break;
-        }
-    }
-    if (removeIndex < 0) {
-        customMessage(this, "移除失败", "未找到所选设备。", true);
-        return;
-    }
-
-    const DeviceInfo device = m_devices[removeIndex];
-    if (!customConfirm(this, "确认移除",
-            QString("确认移除以下设备：\n\n设备 ID：%1\n设备名称：%2\n当前状态：%3")
-                .arg(device.id, device.name, device.status))) {
-        return;
-    }
-
-    m_devices.removeAt(removeIndex);
-    syncDeviceInfoToDatabase();
-    buildDevicePage();
-    customMessage(this, "移除成功", QString("设备 %1（%2）已移除。").arg(device.name, device.id));
-}
-
-void MainWindow::onDeviceDetailClicked() {
-    if (m_deviceTable == nullptr) {
-        return;
-    }
-    const int row = m_deviceTable->currentRow();
-    if (row < 0) {
-        return;
-    }
-    QTableWidgetItem* item = m_deviceTable->item(row, 0);
-    if (item == nullptr) {
-        return;
-    }
-    const QString deviceId = item->text().section('\n', 1, 1).section(" | ", 0, 0).trimmed();
-    int deviceIndex = -1;
-    for (int i = 0; i < m_devices.size(); ++i) {
-        if (m_devices[i].id == deviceId) {
-            deviceIndex = i;
-            break;
-        }
-    }
-    if (deviceIndex < 0) {
-        return;
-    }
-    const DeviceInfo& device = m_devices[deviceIndex];
-    customMessage(this, "设备详情",
-        QString("设备 ID：%1\n设备名称：%2\n类型：%3\n位置：%4\n运行状态：%5\n实时读数：%6 %7\n阈值范围：%8 ~ %9 %7\n电池：%10%%\n固件：%11")
-            .arg(device.id,
-                 device.name,
-                 device.type,
-                 device.location,
-                 device.status,
-                 QString::number(device.latestValue, 'f', 1),
-                 device.latestValueUnit,
-                 QString::number(device.warningLower, 'f', 0),
-                 QString::number(device.warningUpper, 'f', 0),
-                 QString::number(device.battery),
-                 device.firmware));
-}
-
-void MainWindow::onUpdateFirmwareClicked() {
-    if (m_deviceTable == nullptr) {
-        return;
-    }
-    const int row = m_deviceTable->currentRow();
-    if (row < 0) {
-        return;
-    }
-    QTableWidgetItem* item = m_deviceTable->item(row, 0);
-    if (item == nullptr) {
-        return;
-    }
-    const QString deviceId = item->text().section('\n', 1, 1).section(" | ", 0, 0).trimmed();
-    int deviceIndex = -1;
-    for (int i = 0; i < m_devices.size(); ++i) {
-        if (m_devices[i].id == deviceId) {
-            deviceIndex = i;
-            break;
-        }
-    }
-    if (deviceIndex < 0) {
-        return;
-    }
-    m_devices[deviceIndex].firmware = "v1.4.0";
-    m_devices[deviceIndex].status = "运行中";
-    refreshDeviceTable();
-}
-
-void MainWindow::triggerDeviceQuickAction(int deviceIndex, const QString& actionText) {
-    if (deviceIndex < 0 || deviceIndex >= m_devices.size()) {
-        return;
-    }
-    DeviceInfo& device = m_devices[deviceIndex];
-    if (actionText.contains("采样")) {
-        device.latestValue += QRandomGenerator::global()->bounded(0, 25) / 10.0;
-        device.status = "运行中";
-    } else if (actionText.contains("重启")) {
-        device.status = "维护中";
-        device.firmware = "v1.4.0";
-    }
-    appendRemoteControlLog(device.id, actionText, "执行成功");
-    refreshDeviceTable();
-}
-
 void MainWindow::appendRemoteControlLog(const QString& deviceId,
                                         const QString& command,
                                         const QString& result) {
@@ -4126,27 +2796,6 @@ void MainWindow::appendRemoteControlLog(const QString& deviceId,
         return;
     }
     loadRemoteExecLogTable();
-}
-
-void MainWindow::syncDeviceInfoToDatabase() {
-    if (m_db == nullptr) {
-        return;
-    }
-    for (const auto& device : std::as_const(m_devices)) {
-        QString dbErr;
-        if (!m_db->upsertDeviceInfo(device.id, device.name, device.type, device.location, &dbErr)) {
-            qDebug() << "[DB] upsert device info failed:" << device.id << dbErr;
-        }
-    }
-}
-
-int MainWindow::indexOfDeviceById(const QString& deviceId) const {
-    for (int i = 0; i < m_devices.size(); ++i) {
-        if (m_devices[i].id == deviceId) {
-            return i;
-        }
-    }
-    return -1;
 }
 
 void MainWindow::loadRemoteExecLogTable() {
@@ -4175,27 +2824,196 @@ void MainWindow::loadRemoteExecLogTable() {
     }
 }
 
-void MainWindow::onSendRemoteControlClicked() {
-    if (m_remoteCommandCombo == nullptr) {
-        return;
+void MainWindow::onAddAccountClicked() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("添加账户"));
+    dialog.setModal(true);
+    dialog.resize(460, 360);
+
+    dialog.setStyleSheet(QStringLiteral(
+        "QDialog { background-color: #1e293b; }"
+        "QLabel { color: #e2e8f0; font-size: 13px; }"
+        "QLabel#addAccountTitle {"
+        "  color: #f8fafc; font-size: 18px; font-weight: 800; padding-bottom: 4px;"
+        "}"
+        "QLabel#addAccountTip {"
+        "  color: #94a3b8; font-size: 12px; padding-bottom: 12px;"
+        "}"
+        "QLineEdit {"
+        "  background-color: #334155;"
+        "  border: 1px solid #475569;"
+        "  border-radius: 10px;"
+        "  padding: 10px 14px;"
+        "  color: #f8fafc;"
+        "  font-size: 13px;"
+        "  selection-background-color: #3b82f6;"
+        "  selection-color: #ffffff;"
+        "}"
+        "QLineEdit:focus { border: 1px solid #60a5fa; background-color: #3d4f63; }"
+        "QPushButton#addAccountOkBtn {"
+        "  background-color: #2563eb;"
+        "  color: #ffffff;"
+        "  border: none;"
+        "  border-radius: 10px;"
+        "  padding: 10px 22px;"
+        "  font-weight: 700;"
+        "  min-width: 96px;"
+        "}"
+        "QPushButton#addAccountOkBtn:hover { background-color: #1d4ed8; }"
+        "QPushButton#addAccountOkBtn:pressed { background-color: #1e40af; }"
+        "QPushButton#addAccountCancelBtn {"
+        "  background-color: transparent;"
+        "  color: #cbd5e1;"
+        "  border: 1px solid #475569;"
+        "  border-radius: 10px;"
+        "  padding: 10px 22px;"
+        "  font-weight: 600;"
+        "  min-width: 96px;"
+        "}"
+        "QPushButton#addAccountCancelBtn:hover {"
+        "  background-color: #334155;"
+        "  border-color: #64748b;"
+        "}"
+        "QLabel#addAccountErr {"
+        "  color: #ef4444; font-size: 12px; padding-top: 4px;"
+        "}"));
+
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(24, 20, 24, 20);
+    layout->setSpacing(12);
+
+    auto* titleLabel = new QLabel(QStringLiteral("添加账户"), &dialog);
+    titleLabel->setObjectName(QStringLiteral("addAccountTitle"));
+    layout->addWidget(titleLabel);
+
+    auto* tipLabel = new QLabel(QStringLiteral("新账户将写入系统用户表，默认角色为管理员。"), &dialog);
+    tipLabel->setObjectName(QStringLiteral("addAccountTip"));
+    tipLabel->setWordWrap(true);
+    layout->addWidget(tipLabel);
+
+    auto* form = new QFormLayout();
+    form->setSpacing(12);
+    form->setContentsMargins(0, 8, 0, 8);
+
+    auto* editUser = new QLineEdit(&dialog);
+    editUser->setPlaceholderText(QStringLiteral("4-20位字母、数字或下划线"));
+    form->addRow(QStringLiteral("用户名："), editUser);
+
+    auto* editPwd = new QLineEdit(&dialog);
+    editPwd->setEchoMode(QLineEdit::Password);
+    editPwd->setPlaceholderText(QStringLiteral("至少6位"));
+    form->addRow(QStringLiteral("密码："), editPwd);
+
+    auto* editPwd2 = new QLineEdit(&dialog);
+    editPwd2->setEchoMode(QLineEdit::Password);
+    editPwd2->setPlaceholderText(QStringLiteral("再次输入密码"));
+    form->addRow(QStringLiteral("确认密码："), editPwd2);
+
+    layout->addLayout(form);
+
+    auto* errLabel = new QLabel(&dialog);
+    errLabel->setObjectName(QStringLiteral("addAccountErr"));
+    errLabel->setVisible(false);
+    layout->addWidget(errLabel);
+
+    auto* btnRow = new QHBoxLayout();
+    btnRow->addStretch();
+    auto* cancelBtn = new QPushButton(QStringLiteral("取消"), &dialog);
+    cancelBtn->setObjectName(QStringLiteral("addAccountCancelBtn"));
+    cancelBtn->setCursor(Qt::PointingHandCursor);
+    auto* okBtn = new QPushButton(QStringLiteral("确定"), &dialog);
+    okBtn->setObjectName(QStringLiteral("addAccountOkBtn"));
+    okBtn->setCursor(Qt::PointingHandCursor);
+    okBtn->setDefault(true);
+    btnRow->addWidget(cancelBtn);
+    btnRow->addSpacing(12);
+    btnRow->addWidget(okBtn);
+    layout->addLayout(btnRow);
+
+    connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(okBtn, &QPushButton::clicked, &dialog, [&]() {
+        const QString username = editUser->text().trimmed();
+        const QString password = editPwd->text();
+        const QString password2 = editPwd2->text();
+
+        if (username.isEmpty()) {
+            errLabel->setText(QStringLiteral("用户名不能为空"));
+            errLabel->setVisible(true);
+            return;
+        }
+        QRegularExpression nameRx(QStringLiteral("^[A-Za-z0-9_]{4,20}$"));
+        if (!nameRx.match(username).hasMatch()) {
+            errLabel->setText(QStringLiteral("用户名需为4-20位字母、数字或下划线"));
+            errLabel->setVisible(true);
+            return;
+        }
+        if (password.size() < 6) {
+            errLabel->setText(QStringLiteral("密码长度至少6位"));
+            errLabel->setVisible(true);
+            return;
+        }
+        if (password != password2) {
+            errLabel->setText(QStringLiteral("两次密码输入不一致"));
+            errLabel->setVisible(true);
+            return;
+        }
+
+        const QString connectionName =
+            QString("system_ui_add_account_%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+            db.setDatabaseName(QDir(DbConfig::kDbDir).filePath(DbConfig::kDbFileName));
+            if (!db.open()) {
+                errLabel->setText(QStringLiteral("数据库打开失败：%1").arg(db.lastError().text()));
+                errLabel->setVisible(true);
+                QSqlDatabase::removeDatabase(connectionName);
+                return;
+            }
+
+            QSqlQuery q(db);
+            q.prepare("SELECT 1 FROM users WHERE lower(username)=lower(?) LIMIT 1;");
+            q.addBindValue(username);
+            if (!q.exec()) {
+                errLabel->setText(QStringLiteral("查询失败：%1").arg(q.lastError().text()));
+                errLabel->setVisible(true);
+                db.close();
+                QSqlDatabase::removeDatabase(connectionName);
+                return;
+            }
+            if (q.next()) {
+                errLabel->setText(QStringLiteral("用户名已存在"));
+                errLabel->setVisible(true);
+                db.close();
+                QSqlDatabase::removeDatabase(connectionName);
+                return;
+            }
+
+            q.prepare(
+                "INSERT INTO users(username,password,role,created_at) VALUES(?,?,?,?);");
+            q.addBindValue(username);
+            q.addBindValue(password);
+            q.addBindValue(QStringLiteral("admin"));
+            q.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODateWithMs));
+            if (!q.exec()) {
+                errLabel->setText(QStringLiteral("添加失败：%1").arg(q.lastError().text()));
+                errLabel->setVisible(true);
+                db.close();
+                QSqlDatabase::removeDatabase(connectionName);
+                return;
+            }
+
+            db.close();
+            QSqlDatabase::removeDatabase(connectionName);
+        }
+
+        dialog.accept();
+    });
+
+    if (dialog.exec() == QDialog::Accepted) {
+        customMessage(this, QStringLiteral("添加成功"), QStringLiteral("新账户已创建。"));
     }
-
-    const QString commandText = m_remoteCommandCombo->currentText();
-    int code = 1;
-    if (commandText.contains("关闭") || commandText.contains("停止")) {
-        code = 0;
-    }
-
-    QJsonObject cmd;
-    cmd["code"] = code;
-    cmd["name"] = commandText;
-
-    const QString topic = QStringLiteral("test001up");
-    m_mqtt.publishText(topic, QString::fromUtf8(QJsonDocument(cmd).toJson(QJsonDocument::Compact)));
-
-    appendRemoteControlLog("BEMFA", commandText, QString("已发送到 %1").arg(topic));
-    customMessage(this, "提示", QString("已发送控制指令到主题：%1\n命令：%2").arg(topic, commandText));
 }
+
 void MainWindow::onSwitchAccountClicked() {
     if (!customConfirm(this, "切换账号",
             "确定退出当前账号并返回登录页面吗？")) {
@@ -4339,6 +3157,7 @@ void MainWindow::onEditAccountInfoClicked() {
 
     m_userName = newUsername;
     buildSettingsPage();
+    m_builtPages.insert(5);
     customMessage(this, QStringLiteral("修改完成"), QStringLiteral("账号信息已更新。"));
 }
 
