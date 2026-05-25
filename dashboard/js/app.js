@@ -65,6 +65,7 @@
   const FC_COL_WIDTH = 120;
   const FC_COL_GAP = 16;
 
+
   /* ===== 今日已用（STM32直接上传，不做端侧累加） ===== */
 
   /* ===== 级别色映射 ===== */
@@ -109,31 +110,21 @@
       if (cardEl) cardEl.className = 'mcard mcard--' + cls;
     });
 
+    // 同步阈值显示（QT 下发后 STM32 上行 th 字段）
+    if (data.th) {
+      var th = data.th;
+      var rTemp = document.getElementById('mrangeTemp');
+      var rHum  = document.getElementById('mrangeHum');
+      var rPm   = document.getElementById('mrangePm');
+      var rAq   = document.getElementById('mrangeAq');
+      if (rTemp) rTemp.textContent = '告警 <' + (th.tb || '?') + ' 或 >' + (th.ta || '?') + '℃';
+      if (rHum)  rHum.textContent  = '告警 <' + (th.hb || '?') + ' 或 >' + (th.ha || '?') + '%';
+      if (rPm)   rPm.textContent   = '预警≥' + Math.round((th.pa || 150) / 2) + ' 告警≥' + (th.pa || '?') + 'μg/m³';
+      if (rAq)   rAq.textContent   = '预警≥' + Math.round((th.aa || 200) / 2) + ' 告警≥' + (th.aa || '?') + 'ppm';
+    }
+
     currentLinkLevel = (data.lv && data.lv.link != null) ? data.lv.link : 0;
     updateTopBar(currentLinkLevel);
-  }
-
-  /* ===== 执行器状态（从 act + mod 读取） ===== */
-  function updateActuators(data) {
-    var act = data.act || {};
-    var mod = data.mod || {};
-    setActuatorRow('actuatorBuzzer', '蜂鸣器', act.bz, mod.bz);
-    setActuatorRow('actuatorFan', '风扇', act.fan, mod.fan);
-    setActuatorRow('actuatorServo', '窗户', act.svo > 0 ? 1 : 0, mod.svo, act.svo);
-    setActuatorRow('actuatorLed', '指示灯', (act.led && act.led[2]) || 0, mod.led);
-  }
-
-  function setActuatorRow(elId, name, state, manual, extra) {
-    var row = document.getElementById(elId);
-    if (!row) return;
-    var autoManual = manual ? '手动' : '自动';
-    var stateText = '';
-    if (elId === 'actuatorServo') stateText = (extra != null && extra > 0) ? '开(' + extra + '°)' : '关';
-    else stateText = state ? '开' : '关';
-    var cls = manual ? 'act-row--manual' : 'act-row--auto';
-    row.innerHTML = '<span class="act-name">' + name + '</span>' +
-      '<span class="act-state">' + stateText + '</span>' +
-      '<span class="act-mode ' + cls + '">' + autoManual + '</span>';
   }
 
   /* ===== 中栏：水电管理（读STM32直接上传的累计值） ===== */
@@ -326,6 +317,10 @@
   function normalizePayload(raw) {
     if (!raw || typeof raw !== 'object') return raw;
 
+    if (raw.type === 'telemetry' && raw.payload && typeof raw.payload === 'object') {
+      raw = raw.payload;
+    }
+
     // 新协议：sen/lv/act/mod/alm(数组)/actn(位掩码)/flt(数组)/res
     if (raw.sen) {
       return {
@@ -340,7 +335,8 @@
         mod: raw.mod || {},
         alm: Array.isArray(raw.alm) ? raw.alm : [],
         actn: typeof raw.actn === 'number' ? raw.actn : 0,
-        flt: Array.isArray(raw.flt) ? raw.flt : []
+        flt: Array.isArray(raw.flt) ? raw.flt : [],
+        th: raw.th || null
       };
     }
 
@@ -361,7 +357,6 @@
   /* ===== 数据应用 ===== */
   function applyPayload(obj) {
     updateMetrics(obj);
-    updateActuators(obj);
     updateResources(obj);
     updateAlarms(obj);
     showLinkageToast(obj);
@@ -645,7 +640,7 @@
 
   function initTrendChart() {
     var ctx = document.getElementById('chartTrend'); if (!ctx) return;
-    var histData = (window.HISTORY_DATA && window.HISTORY_DATA.recent7 && window.HISTORY_DATA.recent7.length >= 2) ? window.HISTORY_DATA.recent7 : null;
+    var histData = (window.HISTORY_DATA && window.HISTORY_DATA.recent7 && window.HISTORY_DATA.recent7.length >= 2) ? window.HISTORY_DATA.recent7 : [];
     var labels, powerData, waterData, powerUnit = 'mAh', waterUnit = 'L';
     if (histData) {
       labels = histData.map(function (d) { return d.date.slice(5); });
@@ -707,10 +702,19 @@
     mqttClient.on('offline', function () { setConnStatus(false); });
   }
 
-  function publishHelp(type, label) {
+  function publishHelpWrapped(type, label) {
     if (!mqttClient || !mqttClient.connected) return;
-    var helpTopic = CFG.helpTopic || 'WebQT1';
-    mqttClient.publish(helpTopic, JSON.stringify({ type: type, label: label, time: new Date().toISOString(), site: CFG.siteName || '一号营地' }));
+    var helpTopic = CFG.helpTopic || 'help';
+    mqttClient.publish(helpTopic, JSON.stringify({
+      type: 'help',
+      source: 'web',
+      payload: {
+        type: type,
+        label: label,
+        time: new Date().toISOString(),
+        site: CFG.siteName || '一号营地'
+      }
+    }));
   }
 
   function initHelpButton() {
@@ -725,7 +729,7 @@
       opt.addEventListener('click', function (e) {
         e.stopPropagation(); var type = opt.dataset.type;
         var text = (opt.querySelector('.help-option-text') || {}).textContent || type;
-        publishHelp(type, text); close();
+        publishHelpWrapped(type, text); close();
         if (toast) { if (toastTimer) clearTimeout(toastTimer); toast.classList.add('help-toast--show'); toastTimer = setTimeout(function () { toast.classList.remove('help-toast--show'); }, 3000); }
       });
     });

@@ -773,32 +773,6 @@ html, body {
   border: 1px dashed rgba(255,255,255,0.08);
 }
 
-/* ===== 执行器状态卡片 ===== */
-.actuator-card {
-  background: linear-gradient(145deg, rgba(30,41,59,0.85), rgba(15,23,42,0.65));
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 10px 14px;
-  margin-bottom: 8px;
-}
-.actuator-title {
-  font-size: 14px; font-weight: 700; color: #E2E8F0;
-  margin-bottom: 8px;
-}
-.actuator-list { display: flex; flex-direction: column; gap: 4px; }
-.act-row {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 10px; border-radius: 8px;
-  background: rgba(255,255,255,0.03); font-size: 13px;
-}
-.act-name { color: #CBD5E1; font-weight: 600; min-width: 48px; }
-.act-state { color: #F1F5F9; font-weight: 700; min-width: 36px; text-align: center; }
-.act-mode {
-  font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 10px;
-}
-.act-mode.act-row--auto { color: #10B981; background: rgba(16,185,129,0.12); }
-.act-mode.act-row--manual { color: #F59E0B; background: rgba(245,158,11,0.15); }
-
 /* ===== 响应式 ===== */
 
 /* 大屏：>1400px 三栏，呼吸空间充足（默认） */
