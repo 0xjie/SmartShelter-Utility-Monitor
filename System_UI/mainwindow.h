@@ -266,9 +266,6 @@ private:
     QLabel* m_stateFlowLabel = nullptr;
     QLabel* m_stateAirLabel = nullptr;
     QLabel* m_statePmLabel = nullptr;
-    QLabel* m_totalCurrentLabel;
-    QLabel* m_totalPowerLabel;
-    QLabel* m_totalWaterLabel;
     QLabel* m_realtimeStatusLabel;
     QLabel* m_windowIconLabel;
     QPushButton* m_minimizeButton;
@@ -276,10 +273,6 @@ private:
     QPushButton* m_closeButton;
     bool m_dragging = false;
     QPoint m_dragOffset;
-    // 实时页面累计数据（用于教学演示）
-    double m_totalCurrent;
-    double m_totalWater;
-    double m_totalPower;
     int m_lastUsedPowerMAh = 0;
     int m_lastUsedWaterCL = 0;
 
@@ -310,8 +303,6 @@ private:
     QDateTime m_lastLocalAlarmAt;
     QDateTime m_lastRealtimeDataAt;
     QDateTime m_lastDashboardHistoryExportAt;
-    /** 用于累计能耗/电量/流量的上一次采样时刻（与 MQTT / 定时刷新共用 updateData） */
-    QDateTime m_lastCumulativeSampleAt;
     QDateTime m_offlineStartAt;
     QDateTime m_loginTime;
     double m_batteryPct = 100.0;

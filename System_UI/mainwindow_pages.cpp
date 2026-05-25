@@ -156,37 +156,6 @@ void MainWindow::buildRealtimePage() {
     chartView->setStyleSheet("background:transparent;border:none;");
     chartLayout->addWidget(chartView);
     rootLayout->addWidget(chartCard, 1);
-
-    auto* totalCard = createPanelCard(ui->pageDashboard);
-    auto* totalLayout = new QHBoxLayout(totalCard);
-    totalLayout->setContentsMargins(18, 14, 18, 14);
-    auto* powerTitle = new QLabel(QStringLiteral("系统累计能耗"), totalCard);
-    powerTitle->setStyleSheet("QLabel{color:#9cc7ff;font-size:13px;font-weight:600;}");
-    m_totalPowerLabel = new QLabel(QStringLiteral("0.000 kWh"), totalCard);
-    m_totalPowerLabel->setStyleSheet("QLabel{font-size:26px;font-weight:800;color:#f8fbff;}");
-    auto* currentTitle = new QLabel(QStringLiteral("累计电流"), totalCard);
-    currentTitle->setStyleSheet("QLabel{color:#9cc7ff;font-size:13px;font-weight:600;}");
-    m_totalCurrentLabel = new QLabel(QStringLiteral("0.000 Ah"), totalCard);
-    m_totalCurrentLabel->setStyleSheet("QLabel{font-size:26px;font-weight:800;color:#f8fbff;}");
-    auto* waterTitle = new QLabel(QStringLiteral("总流量"), totalCard);
-    waterTitle->setStyleSheet("QLabel{color:#9cc7ff;font-size:13px;font-weight:600;}");
-    m_totalWaterLabel = new QLabel(QStringLiteral("0.0 L"), totalCard);
-    m_totalWaterLabel->setStyleSheet("QLabel{font-size:26px;font-weight:800;color:#f8fbff;}");
-    auto* leftCol = new QVBoxLayout();
-    leftCol->addWidget(powerTitle);
-    leftCol->addWidget(m_totalPowerLabel);
-    auto* centerCol = new QVBoxLayout();
-    centerCol->addWidget(currentTitle);
-    centerCol->addWidget(m_totalCurrentLabel);
-    auto* rightCol = new QVBoxLayout();
-    rightCol->addWidget(waterTitle);
-    rightCol->addWidget(m_totalWaterLabel);
-    totalLayout->addLayout(leftCol);
-    totalLayout->addStretch();
-    totalLayout->addLayout(centerCol);
-    totalLayout->addStretch();
-    totalLayout->addLayout(rightCol);
-    rootLayout->addWidget(totalCard);
 }
 
 void MainWindow::buildWaterPowerPage() {

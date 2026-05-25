@@ -113,17 +113,11 @@ MainWindow::MainWindow(const QString& userName,
       m_dotFlow(nullptr),
       m_dotAir(nullptr),
       m_dotPm(nullptr),
-      m_totalCurrentLabel(nullptr),
-      m_totalPowerLabel(nullptr),
-      m_totalWaterLabel(nullptr),
       m_realtimeStatusLabel(nullptr),
       m_windowIconLabel(nullptr),
       m_minimizeButton(nullptr),
       m_maximizeButton(nullptr),
       m_closeButton(nullptr),
-      m_totalCurrent(0.0),
-      m_totalWater(0.0),
-      m_totalPower(0.0),
       m_alarmInfoTable(nullptr),
 
       m_remoteDeviceCombo(nullptr),
@@ -927,17 +921,11 @@ void MainWindow::updateDataWithLevels(double temp, double hum, double current,
                                        double flow, double airIndex, double pm25,
                                        int linkLv, const QVector<int>& sensorLvs,
                                        const QJsonArray& almArr, const QJsonArray& actnArr) {
-    if (m_cardTempValue == nullptr || m_totalPowerLabel == nullptr) {
+    if (m_cardTempValue == nullptr) {
         return;
     }
 
     const QDateTime now = QDateTime::currentDateTime();
-    double dtSec = 0.0;
-    if (m_lastCumulativeSampleAt.isValid()) {
-        const qint64 dtMs = m_lastCumulativeSampleAt.msecsTo(now);
-        dtSec = qBound(0.0, static_cast<double>(dtMs) / 1000.0, 3600.0);
-    }
-    m_lastCumulativeSampleAt = now;
 
     m_lastRealtimeDataAt = now;
     m_isDeviceOffline = false;
@@ -1051,19 +1039,6 @@ void MainWindow::updateDataWithLevels(double temp, double hum, double current,
         m_lastLocalAlarmAt = now;
         showRealtimeAlarmDialog(this, alarmMessages.join("\n"));
     }
-
-    // 累计量：按相邻两次上报间隔 Δt（秒）积分。电流 mA→A；假定母线电压 220V；水流为 L/min。
-    if (dtSec > 0.0) {
-        constexpr double kLineVoltageV = 220.0;
-        const double iAmpere = current / 1000.0;
-        m_totalCurrent += iAmpere * (dtSec / 3600.0);
-        const double powerKw = iAmpere * kLineVoltageV / 1000.0;
-        m_totalPower += powerKw * (dtSec / 3600.0);
-        m_totalWater += (flow / 60.0) * dtSec;
-    }
-    if (m_totalCurrentLabel) m_totalCurrentLabel->setText(QString("%1 Ah").arg(QString::number(m_totalCurrent, 'f', 3)));
-    if (m_totalPowerLabel) m_totalPowerLabel->setText(QString("%1 kWh").arg(QString::number(m_totalPower, 'f', 3)));
-    if (m_totalWaterLabel) m_totalWaterLabel->setText(QString("%1 L").arg(QString::number(m_totalWater, 'f', 1)));
 
     if (m_db != nullptr) {
         SensorData sample;
