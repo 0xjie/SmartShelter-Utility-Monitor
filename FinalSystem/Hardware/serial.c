@@ -98,7 +98,7 @@ void Serial_SendString(const char *str)
 /* ---- Upload JSON builder (no Chinese, ARMCC v5 safe) ---- */
 void Serial_SendUploadPacket(const UploadPacket *pkt)
 {
-    char buf[512];
+    static char buf[768];
     int pos = 0;
     int n, i;
 
@@ -108,12 +108,14 @@ void Serial_SendUploadPacket(const UploadPacket *pkt)
         int flow_dec = (int)((pkt->flow - (float)flow_int) * 100.0f + 0.5f);
         if (flow_dec < 0) flow_dec = 0;
         if (flow_dec > 99) flow_dec = 99;
+        int cur_a = (int)(pkt->current_ma / 1000);
+        int cur_d = (int)((pkt->current_ma % 1000) / 100);
         n = sprintf(buf,
-            "{\"sen\":{\"t\":%d,\"h\":%d,\"pm\":%lu,\"aq\":%lu,\"f\":%d.%02d,\"i\":%ld},"
+            "{\"sen\":{\"t\":%d,\"h\":%d,\"pm\":%lu,\"aq\":%lu,\"f\":%d.%02d,\"i\":%d.%01d},"
             "\"res\":{\"bp\":%d,\"wp\":%d,\"tu\":%d,\"wu\":%d,\"br\":%d,\"wr\":%d,\"ps\":%d,\"bc\":%d,\"tc\":%d,\"bt\":%d,\"wt\":%d},",
             (int)pkt->temp, (int)pkt->humi,
             (unsigned long)pkt->pm25, (unsigned long)pkt->aq,
-            flow_int, flow_dec, (long)pkt->current_ma,
+            flow_int, flow_dec, cur_a, cur_d,
             (int)pkt->battery_pct, (int)pkt->water_pct,
             (int)pkt->total_power_mah, (int)pkt->total_flow_cl,
             (int)pkt->battery_remain_mah, (int)pkt->water_remain_cl, (int)pkt->power_status,
@@ -144,6 +146,14 @@ void Serial_SendUploadPacket(const UploadPacket *pkt)
         (int)pkt->global_manual,
         (int)pkt->buzzer_manual, (int)pkt->fan_manual,
         (int)pkt->servo_manual, (int)pkt->led_manual);
+    if (n > 0 && n < (int)(sizeof(buf) - pos)) pos += n; else goto send_err;
+
+    /* active alarm thresholds */
+    n = sprintf(buf + pos,
+        "\"th\":{\"ta\":%d,\"tb\":%d,\"ha\":%d,\"hb\":%d,"
+        "\"pa\":%d,\"aa\":%d,\"ca\":%d,\"fa\":%d},",
+        (int)pkt->th_ta, (int)pkt->th_tb, (int)pkt->th_ha, (int)pkt->th_hb,
+        (int)pkt->th_pa, (int)pkt->th_aa, (int)pkt->th_ca, (int)pkt->th_fa);
     if (n > 0 && n < (int)(sizeof(buf) - pos)) pos += n; else goto send_err;
 
     /* alarms: array of codes */

@@ -104,7 +104,7 @@ void MainWindow::buildRealtimePage() {
     rootLayout->addLayout(grid);
 
     m_currentSeries = new QLineSeries(this);
-    m_currentSeries->setName(QStringLiteral("电流 (mA)"));
+    m_currentSeries->setName(QStringLiteral("电流 (A)"));
     m_flowSeries = new QLineSeries(this);
     m_flowSeries->setName(QStringLiteral("水流 (L/min)"));
 
@@ -128,11 +128,11 @@ void MainWindow::buildRealtimePage() {
     m_currentSeries->attachAxis(m_axisX);
     m_flowSeries->attachAxis(m_axisX);
 
-    // 左侧Y轴：电流 (mA)
+    // 左侧Y轴：电流 (A)
     m_axisY_Current = new QValueAxis(this);
-    m_axisY_Current->setTitleText(QStringLiteral("电流 (mA)"));
+    m_axisY_Current->setTitleText(QStringLiteral("电流 (A)"));
     m_axisY_Current->setTitleBrush(QColor(251, 191, 36));
-    m_axisY_Current->setRange(0, 2000);
+    m_axisY_Current->setRange(0, 20);
     m_axisY_Current->setLabelsColor(QColor(251, 191, 36));
     m_axisY_Current->setGridLineColor(QColor(125, 211, 252, 35));
     chart->addAxis(m_axisY_Current, Qt::AlignLeft);
@@ -823,15 +823,14 @@ void MainWindow::buildAlarmPage() {
     filterLayout->addStretch();
     rootLayout->addWidget(filterCard);
 
-    m_alarmInfoTable = new QTableWidget(0, 7, ui->pageAlarm);
-    m_alarmInfoTable->setHorizontalHeaderLabels({QStringLiteral("起始时间"), QStringLiteral("结束时间"), QStringLiteral("传感器"), QStringLiteral("内容"), QStringLiteral("级别"), QStringLiteral("状态"), QStringLiteral("操作")});
+    m_alarmInfoTable = new QTableWidget(0, 6, ui->pageAlarm);
+    m_alarmInfoTable->setHorizontalHeaderLabels({QStringLiteral("起始时间"), QStringLiteral("结束时间"), QStringLiteral("内容"), QStringLiteral("级别"), QStringLiteral("状态"), QStringLiteral("操作")});
     m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
-    m_alarmInfoTable->horizontalHeader()->setSectionResizeMode(6, QHeaderView::ResizeToContents);
     m_alarmInfoTable->verticalHeader()->setVisible(false);
     m_alarmInfoTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_alarmInfoTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -921,12 +920,10 @@ void MainWindow::buildDevicePage() {
     m_remoteCommandCombo = nullptr;
 
     const QString commandTopic = QString::fromLatin1(kMqttCommandPublishTopic);
-    auto publishCommand = [this, commandTopic](const QString& deviceId,
-                                               const QString& commandName,
+    auto publishCommand = [this, commandTopic](const QString& commandName,
                                                const QString& payload) -> bool {
         const bool ok = m_mqtt.publishText(commandTopic, payload);
-        appendRemoteControlLog(deviceId,
-                               commandName,
+        appendRemoteControlLog(commandName,
                                ok ? QStringLiteral("已发送到 %1").arg(commandTopic)
                                   : QStringLiteral("发送失败：MQTT 未连接"));
         if (!ok) {
@@ -1048,8 +1045,7 @@ void MainWindow::buildDevicePage() {
             for (int i = 0; i < thresholdBoxes.size(); ++i) {
                 thresholdBoxes[i]->setValue(thresholdDefs[i].defaultValue);
             }
-            if (publishCommand(QStringLiteral("SYSTEM"),
-                               QStringLiteral("恢复默认阈值"),
+            if (publishCommand(QStringLiteral("恢复默认阈值"),
                                buildResetThresholdMqttJson())) {
                 customMessage(this,
                               QStringLiteral("已发送"),
@@ -1069,8 +1065,7 @@ void MainWindow::buildDevicePage() {
                 values.insert(thresholdDefs[i].key, thresholdBoxes[i]->value());
             }
 
-            if (publishCommand(QStringLiteral("SYSTEM"),
-                               QStringLiteral("阈值一键下发"),
+            if (publishCommand(QStringLiteral("阈值一键下发"),
                                buildThresholdMqttJson(values))) {
                 customMessage(this,
                               QStringLiteral("已发送"),
@@ -1112,8 +1107,7 @@ void MainWindow::buildDevicePage() {
             payload.insert(QStringLiteral("kind"), QStringLiteral("control"));
             payload.insert(QStringLiteral("code"), code);
             payload.insert(QStringLiteral("name"), actionName);
-            return publishCommand(QStringLiteral("SYSTEM"),
-                                  actionName,
+            return publishCommand(actionName,
                                   buildWrappedMqttJson(QStringLiteral("command"),
                                                        QStringLiteral("qt"),
                                                        payload));
