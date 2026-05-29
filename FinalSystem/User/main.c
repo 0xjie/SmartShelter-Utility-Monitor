@@ -102,6 +102,7 @@ static uint16_t TANK_CAPACITY_L      = 10;
 
 #define SERVO_HOME       0
 #define OLED_REFRESH_MS  300
+#define OLED_PAGE_MS     3000
 
 // ---- LED ----
 static void Apply_RGB_Leds(uint8_t red, uint8_t green, uint8_t yellow)
@@ -168,6 +169,23 @@ static uint8_t build_alarm_codes(uint16_t *codes, uint8_t *levels, uint8_t max_n
 
 // ---- 阈值命中 = 预警或告警级别（用于组合联动判断） ----
 static uint8_t is_warn_or_alarm(uint8_t lv) { return lv >= LINK_WARN ? 1 : 0; }
+
+static void send_threshold_ack(const char *key, uint16_t val)
+{
+    char ack[96];
+    sprintf(ack, "{\"ack\":\"th\",\"key\":\"%s\",\"val\":%u,\"ta\":%u,\"ha\":%u}\r\n",
+            key, (unsigned int)val,
+            (unsigned int)TEMP_ALARM_H, (unsigned int)HUMI_ALARM_H);
+    Serial_SendString(ack);
+}
+
+static void send_reset_threshold_ack(void)
+{
+    char ack[80];
+    sprintf(ack, "{\"ack\":\"reset_th\",\"ta\":%u,\"ha\":%u}\r\n",
+            (unsigned int)TEMP_ALARM_H, (unsigned int)HUMI_ALARM_H);
+    Serial_SendString(ack);
+}
 
 // ---- 命令执行 ----
 static void exec_control_cmd(const JsonCommand *cmd,
@@ -238,6 +256,8 @@ int main(void)
     float   rpt_f  = 0.0f;
     char line[17];
     char esp_line[SERIAL_RX_LINE_MAX];
+    uint32_t oled_page_interval = 0;
+    uint8_t oled_page = 0;
 
     // 模式 / 手动状态
     uint8_t global_manual = 0;
@@ -307,6 +327,15 @@ int main(void)
                 switch (jcmd.type) {
                 case JSONCMD_RESET_TH:
                     reset_thresholds_to_default();
+                    send_reset_threshold_ack();
+                    temp_level = humi_level = pm25_level = aq_level = cur_level = flw_level = LINK_NORMAL;
+                    link_level = env_level = LINK_NORMAL;
+                    temp_warn_cnt = 0; temp_alarm_cnt = 0; temp_warn_rec = 0; temp_alarm_rec = 0;
+                    humi_warn_cnt = 0; humi_alarm_cnt = 0; humi_warn_rec = 0; humi_alarm_rec = 0;
+                    pm25_warn_cnt = 0; pm25_alarm_cnt = 0; pm25_warn_rec = 0; pm25_alarm_rec = 0;
+                    aq_warn_cnt = 0; aq_alarm_cnt = 0; aq_warn_rec = 0; aq_alarm_rec = 0;
+                    cur_warn_cnt = 0; cur_alarm_cnt = 0; cur_warn_rec = 0; cur_alarm_rec = 0;
+                    flw_warn_cnt = 0; flw_alarm_cnt = 0; flw_warn_rec = 0; flw_alarm_rec = 0;
                     break;
                 case JSONCMD_RESET:
                     manual_wdog_tick = 0;
@@ -356,6 +385,15 @@ int main(void)
                     else if (strcmp(k, "bp") == 0) { if (v > 100) v = 100; battery_used_mAh = BATTERY_CAPACITY_mAh * (100.0f - v) / 100.0f; }
                     else if (strcmp(k, "wc") == 0) { TANK_CAPACITY_L = v; Flow_Sensor_Reset_Total(); }
                     else if (strcmp(k, "wp") == 0) { if (v > 100) v = 100; total_flow_L = TANK_CAPACITY_L * (100.0f - v) / 100.0f; }
+                    send_threshold_ack(k, v);
+                    temp_level = humi_level = pm25_level = aq_level = cur_level = flw_level = LINK_NORMAL;
+                    link_level = env_level = LINK_NORMAL;
+                    temp_warn_cnt = 0; temp_alarm_cnt = 0; temp_warn_rec = 0; temp_alarm_rec = 0;
+                    humi_warn_cnt = 0; humi_alarm_cnt = 0; humi_warn_rec = 0; humi_alarm_rec = 0;
+                    pm25_warn_cnt = 0; pm25_alarm_cnt = 0; pm25_warn_rec = 0; pm25_alarm_rec = 0;
+                    aq_warn_cnt = 0; aq_alarm_cnt = 0; aq_warn_rec = 0; aq_alarm_rec = 0;
+                    cur_warn_cnt = 0; cur_alarm_cnt = 0; cur_warn_rec = 0; cur_alarm_rec = 0;
+                    flw_warn_cnt = 0; flw_alarm_cnt = 0; flw_warn_rec = 0; flw_alarm_rec = 0;
                     break;
                 }
                 default: break;
@@ -386,7 +424,7 @@ int main(void)
                 battery_used_mAh = (float)BATTERY_CAPACITY_mAh;
             battery_pct = (uint8_t)((1.0f - battery_used_mAh / BATTERY_CAPACITY_mAh) * 100.0f);
             water_pct = (uint8_t)((1.0f - total_flow_L / TANK_CAPACITY_L) * 100.0f);
-            if (water_pct > 100) water_pct = 0;
+            if (water_pct > 100) water_pct = 100;
 
             // ===== 三级联动评估（滞回 + 连续触发确认） =====
             if (dht_ok)
@@ -652,6 +690,10 @@ int main(void)
             pkt.fan_manual = fan_manual_mode;
             pkt.servo_manual = servo_manual_mode;
             pkt.led_manual = led_manual_mode;
+            pkt.th_ta = TEMP_ALARM_H; pkt.th_tb = TEMP_ALARM_L;
+            pkt.th_ha = HUMI_ALARM_H; pkt.th_hb = HUMI_ALARM_L;
+            pkt.th_pa = PM25_ALARM; pkt.th_aa = AQ_ALARM;
+            pkt.th_ca = CUR_ALARM; pkt.th_fa = FLW_ALARM;
 
             // 执行器状态
             {
@@ -701,7 +743,10 @@ int main(void)
             // 预估剩余时间（分钟）
             {
                 float remain_mAh = (float)battery_pct / 100.0f * (float)BATTERY_CAPACITY_mAh;
-                pkt.battery_remain_min = (uint16_t)((remain_mAh / (float)rpt_ma) * 60.0f + 0.5f);
+                if (rpt_ma > 0)
+                    pkt.battery_remain_min = (uint16_t)((remain_mAh / (float)rpt_ma) * 60.0f + 0.5f);
+                else
+                    pkt.battery_remain_min = 0;
             }
             {
                 float remain_L = (float)water_pct / 100.0f * (float)TANK_CAPACITY_L;
@@ -732,19 +777,40 @@ int main(void)
 
         // ---- OLED 显示 ----
         if (oled_interval >= OLED_REFRESH_MS) {
-            snprintf(line, sizeof(line), "T:%2dC H:%2d%%   ", temp, humi);
-            OLED_ShowString(1, 1, line);
-            snprintf(line, sizeof(line), "PM:%3u AQ:%3u ", (unsigned int)pm25_ugm3, (unsigned int)aq_ppm);
-            OLED_ShowString(2, 1, line);
-            snprintf(line, sizeof(line), "Flow:%4.2fL/m  ", flow_lpm);
-            OLED_ShowString(3, 1, line);
-            {
-                int cur_a = (int)rpt_ma / 1000;
-                int cur_d = ((int)rpt_ma % 1000) / 100;
-                snprintf(line, sizeof(line), "I:%2d.%1dA        ", cur_a, cur_d);
+            if (oled_page == 0) {
+                snprintf(line, sizeof(line), "T:%2dC H:%2d%%   ", temp, humi);
+                OLED_ShowString(1, 1, line);
+                snprintf(line, sizeof(line), "PM:%3u AQ:%3u ", (unsigned int)pm25_ugm3, (unsigned int)aq_ppm);
+                OLED_ShowString(2, 1, line);
+                snprintf(line, sizeof(line), "Flow:%4.2fL/m  ", flow_lpm);
+                OLED_ShowString(3, 1, line);
+                {
+                    int cur_a = (int)rpt_ma / 1000;
+                    int cur_d = ((int)rpt_ma % 1000) / 100;
+                    snprintf(line, sizeof(line), "I:%2d.%1dA        ", cur_a, cur_d);
+                }
+                OLED_ShowString(4, 1, line);
+            } else {
+                snprintf(line, sizeof(line), "TH:%2uC TL:%2uC ",
+                         (unsigned int)TEMP_ALARM_H, (unsigned int)TEMP_ALARM_L);
+                OLED_ShowString(1, 1, line);
+                snprintf(line, sizeof(line), "HH:%2u%% HL:%2u%% ",
+                         (unsigned int)HUMI_ALARM_H, (unsigned int)HUMI_ALARM_L);
+                OLED_ShowString(2, 1, line);
+                snprintf(line, sizeof(line), "PH:%3u AH:%3u  ",
+                         (unsigned int)PM25_ALARM, (unsigned int)AQ_ALARM);
+                OLED_ShowString(3, 1, line);
+                snprintf(line, sizeof(line), "IH:%2uA FH:%2uL ",
+                         (unsigned int)CUR_ALARM, (unsigned int)FLW_ALARM);
+                OLED_ShowString(4, 1, line);
             }
-            OLED_ShowString(4, 1, line);
             oled_interval = 0;
+        }
+
+        if (oled_page_interval >= OLED_PAGE_MS) {
+            oled_page = (uint8_t)((oled_page + 1) % 2);
+            oled_page_interval = 0;
+            OLED_Clear();
         }
 
         // 手动模式看门狗：超时5分钟自动切回AUTO
@@ -763,6 +829,7 @@ int main(void)
         Delay_ms(10);
         sensor_interval += 10;
         oled_interval += 10;
+        oled_page_interval += 10;
 
         // ---- 蜂鸣器：手动优先 ----
         if (buzzer_remote_mode) {
