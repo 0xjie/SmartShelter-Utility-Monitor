@@ -145,7 +145,7 @@
     var fillEl = document.getElementById('batFill');
     if (pctEl) {
       pctEl.textContent = (pct != null && !Number.isNaN(pct))
-        ? pct + '% (' + ((remainMAh || 0) / 1000).toFixed(1) + ' Ah)' : '--%';
+        ? pct + '% (' + (remainMAh || 0) + ' mAh)' : '--%';
     }
     if (fillEl) {
       var w = (pct != null && !Number.isNaN(pct)) ? Math.max(0, Math.min(pct, 100)) : 0;
@@ -641,10 +641,10 @@
   function initTrendChart() {
     var ctx = document.getElementById('chartTrend'); if (!ctx) return;
     var histData = (window.HISTORY_DATA && window.HISTORY_DATA.recent7 && window.HISTORY_DATA.recent7.length >= 2) ? window.HISTORY_DATA.recent7 : [];
-    var labels, powerData, waterData, powerUnit = 'Ah', waterUnit = 'L';
+    var labels, powerData, waterData, powerUnit = 'mAh', waterUnit = 'L';
     if (histData) {
       labels = histData.map(function (d) { return d.date.slice(5); });
-      powerData = histData.map(function (d) { return ((d.powerMAh || 0) / 1000); });
+      powerData = histData.map(function (d) { return d.powerMAh || 0; });
       waterData = histData.map(function (d) { return d.waterL || 0; });
     } else {
       labels = ['05/09','05/10','05/11','05/12','05/13','05/14','今日'];
