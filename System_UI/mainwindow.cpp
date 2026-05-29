@@ -1104,13 +1104,13 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
 
         if (m_batteryInfoLabel != nullptr) {
             QString info = QStringLiteral(
-                "剩余: %1 mAh\n"
-                "已用: %2 mAh\n"
+                "剩余: %1 Ah\n"
+                "已用: %2 Ah\n"
                 "今日用电: %4 Ah\n"
-                "容量: %3 mAh")
-                .arg(QString::number(remainMAh, 'f', 0),
-                     QString::number(usedPowerMAh),
-                     QString::number(batCapMAh),
+                "容量: %3 Ah")
+                .arg(QString::number(remainMAh / 1000.0, 'f', 1),
+                     QString::number(usedPowerMAh / 1000.0, 'f', 1),
+                     QString::number(batCapMAh / 1000.0, 'f', 1),
                      QString::number(m_lastUsedPowerMAh / 1000.0, 'f', 1));
             if (batRemainMin > 0) {
                 if (batRemainMin >= 1440)
@@ -1296,7 +1296,7 @@ void MainWindow::refreshWaterPowerAnalysisPage() {
         m_wpUsageStatsLabel->setText(
             QStringLiteral(
                 "日期：%1\n"
-                "用电总量：%2 mAh，均值：%3 mAh/时段，峰值：%4 mAh（%5），活跃时长：约 %6 小时\n"
+                "用电总量：%2 Ah，均值：%3 Ah/时段，峰值：%4 Ah（%5），活跃时长：约 %6 小时\n"
                 "用水总量：%7 L，均值：%8 L/时段，峰值：%9 L（%10），活跃时长：约 %11 小时")
                 .arg(selectedDay.toString(QStringLiteral("yyyy-MM-dd")))
                 .arg(QString::number(totalPowerMAh, 'f', 0))
@@ -1372,14 +1372,14 @@ void MainWindow::refreshWaterPowerAnalysisPage() {
         m_wpTrendStatsLabel->setText(
             QStringLiteral(
                 "区间：%1 ~ %2\n"
-                "总用电：%3 mAh，日均：%4 mAh，峰值日：%5（%6 mAh）\n"
+                "总用电：%3 Ah，日均：%4 Ah，峰值日：%5（%6 Ah）\n"
                 "总用水：%7 L，日均：%8 L，峰值日：%9（%10 L）")
                 .arg(trendStart.toString(QStringLiteral("yyyy-MM-dd")))
                 .arg(trendEnd.toString(QStringLiteral("yyyy-MM-dd")))
-                .arg(QString::number(totalTrendPower, 'f', 0))
-                .arg(QString::number(trendDays > 0 ? totalTrendPower / trendDays : 0.0, 'f', 1))
+                .arg(QString::number(totalTrendPower / 1000.0, 'f', 1))
+                .arg(QString::number(trendDays > 0 ? totalTrendPower / trendDays / 1000.0 : 0.0, 'f', 2))
                 .arg(peakPowerDay.isEmpty() ? QStringLiteral("--") : peakPowerDay)
-                .arg(QString::number(maxTrendPower, 'f', 0))
+                .arg(QString::number(maxTrendPower / 1000.0, 'f', 1))
                 .arg(QString::number(totalTrendWater, 'f', 1))
                 .arg(QString::number(trendDays > 0 ? totalTrendWater / trendDays : 0.0, 'f', 1))
                 .arg(peakWaterDay.isEmpty() ? QStringLiteral("--") : peakWaterDay)
@@ -2481,7 +2481,7 @@ bool MainWindow::exportWaterPowerAnalysisAsXlsx(const QString& filePath,
                   .arg(inlineCell("A1", QStringLiteral("序号"), 2),
                        inlineCell("B1", QStringLiteral("开始时间"), 2),
                        inlineCell("C1", QStringLiteral("结束时间"), 2),
-                       inlineCell("D1", QStringLiteral("用电(mAh)"), 2),
+                       inlineCell("D1", QStringLiteral("用电(Ah)"), 2),
                        inlineCell("E1", QStringLiteral("用水(L)"), 2),
                        inlineCell("F1", QStringLiteral("是否用电峰值"), 2),
                        inlineCell("G1", QStringLiteral("是否用水峰值"), 2));
@@ -2507,9 +2507,9 @@ bool MainWindow::exportWaterPowerAnalysisAsXlsx(const QString& filePath,
             sheet2 += "</row>";
             row++;
         };
-        addSummary2(QStringLiteral("单日总用电"), QString::number(totalPowerMAh, 'f', 0) + QStringLiteral(" mAh"));
+        addSummary2(QStringLiteral("单日总用电"), QString::number(totalPowerMAh, 'f', 1) + QStringLiteral(" Ah"));
         addSummary2(QStringLiteral("单日总用水"), QString::number(totalWaterL, 'f', 1) + QStringLiteral(" L"));
-        addSummary2(QStringLiteral("平均每时段用电"), QString::number(avgPower, 'f', 1) + QStringLiteral(" mAh"));
+        addSummary2(QStringLiteral("平均每时段用电"), QString::number(avgPower, 'f', 2) + QStringLiteral(" Ah"));
         addSummary2(QStringLiteral("平均每时段用水"), QString::number(avgWater, 'f', 2) + QStringLiteral(" L"));
         addSummary2(QStringLiteral("用电峰值时段"), peakPowerTime.isEmpty() ? QStringLiteral("--") : peakPowerTime);
         addSummary2(QStringLiteral("用水峰值时段"), peakWaterTime.isEmpty() ? QStringLiteral("--") : peakWaterTime);
@@ -2526,7 +2526,7 @@ bool MainWindow::exportWaterPowerAnalysisAsXlsx(const QString& filePath,
     sheet3 += QString("<row r=\"1\">%1%2%3%4%5%6</row>")
                   .arg(inlineCell("A1", QStringLiteral("序号"), 2),
                        inlineCell("B1", QStringLiteral("日期"), 2),
-                       inlineCell("C1", QStringLiteral("日用电(mAh)"), 2),
+                       inlineCell("C1", QStringLiteral("日用电(Ah)"), 2),
                        inlineCell("D1", QStringLiteral("日用水(L)"), 2),
                        inlineCell("E1", QStringLiteral("是否用电峰值日"), 2),
                        inlineCell("F1", QStringLiteral("是否用水峰值日"), 2));
@@ -2537,7 +2537,7 @@ bool MainWindow::exportWaterPowerAnalysisAsXlsx(const QString& filePath,
             sheet3 += QString("<row r=\"%1\">").arg(row);
             sheet3 += numberCell(QString("A%1").arg(row), i + 1, 5);
             sheet3 += inlineCell(QString("B%1").arg(row), r.day, 3);
-            sheet3 += numberCell(QString("C%1").arg(row), r.powerMAh, 3);
+            sheet3 += numberCell(QString("C%1").arg(row), r.powerMAh / 1000.0, 3);
             sheet3 += numberCell(QString("D%1").arg(row), r.waterL, 3);
             sheet3 += inlineCell(QString("E%1").arg(row), r.powerPeak ? QStringLiteral("是") : QStringLiteral(""), 5);
             sheet3 += inlineCell(QString("F%1").arg(row), r.waterPeak ? QStringLiteral("是") : QStringLiteral(""), 5);
@@ -2551,9 +2551,9 @@ bool MainWindow::exportWaterPowerAnalysisAsXlsx(const QString& filePath,
             sheet3 += "</row>";
             row++;
         };
-        addSummary3(QStringLiteral("区间总用电"), QString::number(trendTotalPower, 'f', 0) + QStringLiteral(" mAh"));
+        addSummary3(QStringLiteral("区间总用电"), QString::number(trendTotalPower / 1000.0, 'f', 1) + QStringLiteral(" Ah"));
         addSummary3(QStringLiteral("区间总用水"), QString::number(trendTotalWater, 'f', 1) + QStringLiteral(" L"));
-        addSummary3(QStringLiteral("日均用电"), QString::number(trendAvgPower, 'f', 1) + QStringLiteral(" mAh"));
+        addSummary3(QStringLiteral("日均用电"), QString::number(trendAvgPower / 1000.0, 'f', 2) + QStringLiteral(" Ah"));
         addSummary3(QStringLiteral("日均用水"), QString::number(trendAvgWater, 'f', 1) + QStringLiteral(" L"));
         addSummary3(QStringLiteral("用电峰值日"), trendPeakPowerDay.isEmpty() ? QStringLiteral("--") : trendPeakPowerDay);
         addSummary3(QStringLiteral("用水峰值日"), trendPeakWaterDay.isEmpty() ? QStringLiteral("--") : trendPeakWaterDay);
