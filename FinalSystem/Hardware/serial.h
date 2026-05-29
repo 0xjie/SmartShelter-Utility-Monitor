@@ -42,13 +42,6 @@
 #define ALM_CMB_TEMP_PM25   200
 #define ALM_CMB_PM25_AQ     201
 #define ALM_CMB_FLW_CUR     202
-/* 传感器故障 900-909 */
-#define FLT_DHT11           901
-#define FLT_MQ135           902
-#define FLT_GP2Y10          903
-#define FLT_ACS712          904
-#define FLT_FLOW            905
-
 /* ==================== 动作标志位 ==================== */
 #define ACT_FLAG_BUZZER_ON   0x01
 #define ACT_FLAG_BUZZER_OFF  0x02
@@ -75,6 +68,9 @@ typedef struct {
     /* 模式: 0=AUTO, 1=MANUAL */
     uint8_t global_manual;
     uint8_t buzzer_manual, fan_manual, servo_manual, led_manual;
+    /* Active alarm thresholds */
+    uint16_t th_ta, th_tb, th_ha, th_hb;
+    uint16_t th_pa, th_aa, th_ca, th_fa;
     /* 告警列表 */
     uint8_t  alm_count;
     uint16_t alm_codes[8];
@@ -93,9 +89,6 @@ typedef struct {
     /* 预估剩余时间 */
     uint16_t battery_remain_min;
     uint16_t water_remain_min;
-    /* 故障列表 */
-    uint8_t  flt_count;
-    uint16_t flt_codes[8];
 } UploadPacket;
 
 /* ==================== JSON 下行命令 ==================== */
