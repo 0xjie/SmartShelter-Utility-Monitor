@@ -164,7 +164,7 @@
         predEl.innerHTML = '预计剩余可用时间：约 <strong>' + Math.round(remainMin / 60) + '</strong> 小时';
       else
         predEl.innerHTML = '预计剩余可用时间：约 <strong>' + Math.round(remainMin) + '</strong> 分钟';
-    } else if (predEl && amp <= 10) {
+    } else if (predEl && amp <= 0.01) {
       predEl.innerHTML = '当前无负载';
     } else if (predEl) {
       predEl.innerHTML = '预计剩余可用时间：约 --';
@@ -175,7 +175,7 @@
     if (lineEl) {
       if (powerStatus >= 2)      { lineEl.textContent = '过载'; lineEl.style.color = '#EF4444'; }
       else if (powerStatus >= 1) { lineEl.textContent = '偏高'; lineEl.style.color = '#F59E0B'; }
-      else if ((amp || 0) > 10) { lineEl.textContent = '正常'; lineEl.style.color = ''; }
+      else if ((amp || 0) > 0.01) { lineEl.textContent = '正常'; lineEl.style.color = ''; }
       else                       { lineEl.textContent = '--'; lineEl.style.color = ''; }
     }
     if (badgeEl) badgeEl.textContent = (pct != null && pct > 30) ? '电力供应充足' : (pct > 10 ? '电力不足' : '电力告急');
