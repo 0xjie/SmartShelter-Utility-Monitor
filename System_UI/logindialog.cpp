@@ -20,7 +20,6 @@
 #include <QDebug>
 
 #include "authservice.h"
-#include "registerdialog.h"
 #include "securestore.h"
 
 namespace {
@@ -210,7 +209,7 @@ void LoginDialog::buildUi() {
     title->setAlignment(Qt::AlignCenter);
     title->setObjectName("titleLabel");
 
-    QLabel* sub = new QLabel("灾后临时安置点智慧管理系统", loginCard);
+    QLabel* sub = new QLabel("灾后临时安置点智慧水电管理与环境监测系统", loginCard);
     sub->setObjectName("loginSubTitle");
     sub->setAlignment(Qt::AlignCenter);
 
@@ -250,11 +249,7 @@ void LoginDialog::buildUi() {
     m_loginBtn = new QPushButton("立即登录", loginCard);
     m_loginBtn->setObjectName("primaryButton");
 
-    m_registerBtn = new QPushButton("没有账号？去注册", loginCard);
-    m_registerBtn->setObjectName("linkButton");
-
     connect(m_loginBtn, &QPushButton::clicked, this, &LoginDialog::onLogin);
-    connect(m_registerBtn, &QPushButton::clicked, this, &LoginDialog::openRegister);
     connect(m_passwordEdit, &QLineEdit::returnPressed, this, &LoginDialog::onLogin);
     connect(m_accountEdit, &QLineEdit::returnPressed, this, &LoginDialog::onLogin);
 
@@ -265,7 +260,6 @@ void LoginDialog::buildUi() {
     cardLayout->addWidget(m_rememberCheck);
     cardLayout->addSpacing(8);
     cardLayout->addWidget(m_loginBtn);
-    cardLayout->addWidget(m_registerBtn);
     cardLayout->addStretch();
 
     root->addWidget(loginCard, 1);
@@ -303,7 +297,3 @@ void LoginDialog::onTogglePassword() {
     m_togglePwdAction->setIcon(buildEyeIcon(!hidden));
 }
 
-void LoginDialog::openRegister() {
-    RegisterDialog dlg(m_auth, this);
-    dlg.exec();
-}

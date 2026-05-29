@@ -253,7 +253,7 @@ void MainWindow::changeEvent(QEvent* event) {
 void MainWindow::initUi() {
     setWindowTitle(QString());
     setWindowIcon(createEmergencyWindowIcon());
-    ui->labelSystemTitle->setText("灾后临时安置点智慧管理系统");
+    ui->labelSystemTitle->setText("灾后临时安置点智慧水电管理与环境监测系统");
     setStyleSheet(
         "QMainWindow{"
         "background-color:#071a36;"
@@ -720,8 +720,8 @@ void MainWindow::initMqtt() {
                 // 写入报警数据库
                 if (m_db != nullptr) {
                     const QString alarmTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
-                    m_db->insertAlarmInfo(alarmTime, "求助:" + typeCN,
-                                          QString("%1 — %2").arg(label, site), "求助");
+                    m_db->insertAlarmInfo(alarmTime,
+                                          QString("求助:%1 — %2").arg(typeCN, QString("%1 — %2").arg(label, site)), "求助");
                     refreshAlarmInfoFromDatabase();
                 }
 
@@ -1006,7 +1006,7 @@ void MainWindow::updateDataWithLevels(double temp, double hum, double current,
         int lv = (code % 10 == 2 || code >= 200) ? 2 : 1;
         QString level = (lv >= 2) ? QStringLiteral("严重") : QStringLiteral("预警");
         QString msg = almMsg.value(code, QString("Code %1").arg(code));
-        addAlarmRecord(timeStr, msg, msg, level, code);
+        addAlarmRecord(timeStr, msg, level, code);
     }
 
     // 消失的报警（之前有、当前没有）→ 记录结束时间
@@ -2604,7 +2604,6 @@ bool MainWindow::exportWaterPowerAnalysisAsXlsx(const QString& filePath,
 }
 
 void MainWindow::addAlarmRecord(const QString& timeText,
-                                const QString& sensorText,
                                 const QString& contentText,
                                 const QString& level,
                                 int alarmCode) {
@@ -2614,7 +2613,7 @@ void MainWindow::addAlarmRecord(const QString& timeText,
 
     if (m_db != nullptr) {
         QString insErr;
-        if (!m_db->insertAlarmInfo(timeText, sensorText, contentText, level, alarmCode, &insErr)) {
+        if (!m_db->insertAlarmInfo(timeText, contentText, level, alarmCode, &insErr)) {
             qDebug() << "[DB] insert alarm_info failed:" << insErr;
         }
     }
@@ -2681,12 +2680,11 @@ void MainWindow::refreshAlarmInfoFromDatabase() {
         m_alarmInfoTable->insertRow(rowIdx);
         m_alarmInfoTable->setItem(rowIdx, 0, new QTableWidgetItem(r.alarmTime));                    // 起始
         m_alarmInfoTable->setItem(rowIdx, 1, new QTableWidgetItem(r.endTime.isEmpty() ? "—" : r.endTime)); // 结束
-        m_alarmInfoTable->setItem(rowIdx, 2, new QTableWidgetItem(r.sensorName));                   // 传感器
-        m_alarmInfoTable->setItem(rowIdx, 3, new QTableWidgetItem(r.alarmContent));                 // 内容
+        m_alarmInfoTable->setItem(rowIdx, 2, new QTableWidgetItem(r.alarmContent));                 // 内容
         auto* levelItem = new QTableWidgetItem(levelText);
         levelItem->setForeground(levelColor);
         levelItem->setData(Qt::TextAlignmentRole, Qt::AlignCenter);
-        m_alarmInfoTable->setItem(rowIdx, 4, levelItem);  // 级别
+        m_alarmInfoTable->setItem(rowIdx, 3, levelItem);  // 级别
 
         bool isResolved = (r.status == QStringLiteral("resolved"));
         bool isHelp = (levelText == QStringLiteral("求助"));
@@ -2705,7 +2703,7 @@ void MainWindow::refreshAlarmInfoFromDatabase() {
         auto* statusItem = new QTableWidgetItem(statusText);
         statusItem->setForeground(statusColor);
         statusItem->setData(Qt::TextAlignmentRole, Qt::AlignCenter);
-        m_alarmInfoTable->setItem(rowIdx, 5, statusItem);
+        m_alarmInfoTable->setItem(rowIdx, 4, statusItem);
 
         // 操作：求助未处理→按钮，求助已处理→✓，传感器→自动
         if (isHelp && !isResolved) {
@@ -2718,17 +2716,17 @@ void MainWindow::refreshAlarmInfoFromDatabase() {
             connect(btn, &QPushButton::clicked, this, [this, alarmId]() {
                 onAlarmHandledClicked(alarmId);
             });
-            m_alarmInfoTable->setCellWidget(rowIdx, 6, btn);
+            m_alarmInfoTable->setCellWidget(rowIdx, 5, btn);
         } else if (isResolved) {
             auto* doneLabel = new QLabel(QStringLiteral("✓"));
             doneLabel->setStyleSheet("QLabel{color:#22c55e;font-size:13px;font-weight:800;}");
             doneLabel->setAlignment(Qt::AlignCenter);
-            m_alarmInfoTable->setCellWidget(rowIdx, 6, doneLabel);
+            m_alarmInfoTable->setCellWidget(rowIdx, 5, doneLabel);
         } else {
             auto* autoLabel = new QLabel(QStringLiteral("自动"));
             autoLabel->setStyleSheet("QLabel{color:#64748b;font-size:11px;}");
             autoLabel->setAlignment(Qt::AlignCenter);
-            m_alarmInfoTable->setCellWidget(rowIdx, 6, autoLabel);
+            m_alarmInfoTable->setCellWidget(rowIdx, 5, autoLabel);
         }
         rowIdx++;
     }
@@ -2757,8 +2755,7 @@ void MainWindow::onAlarmHandledClicked(int alarmId) {
     }
 }
 
-void MainWindow::appendRemoteControlLog(const QString& deviceId,
-                                        const QString& command,
+void MainWindow::appendRemoteControlLog(const QString& command,
                                         const QString& result) {
     if (m_db == nullptr) {
         return;
@@ -2766,7 +2763,7 @@ void MainWindow::appendRemoteControlLog(const QString& deviceId,
 
     const QDateTime now = QDateTime::currentDateTime();
     QString dbErr;
-    if (!m_db->insertRemoteExecLog(deviceId, command, result, now, &dbErr)) {
+    if (!m_db->insertRemoteExecLog(command, result, now, &dbErr)) {
         qDebug() << "[DB] insert remote exec log failed:" << dbErr;
         return;
     }
@@ -2786,7 +2783,6 @@ void MainWindow::loadRemoteExecLogTable() {
     if (!rows.isEmpty()) {
         for (const auto& row : rows) {
             lines.append(formatRemoteLogTableLine(row.executeTime,
-                                                  row.deviceId,
                                                   row.commandText,
                                                   row.resultText));
         }
@@ -2964,11 +2960,10 @@ void MainWindow::onAddAccountClicked() {
             }
 
             q.prepare(
-                "INSERT INTO users(username,password,role,created_at) VALUES(?,?,?,?);");
+                "INSERT INTO users(username,password,role) VALUES(?,?,?);");
             q.addBindValue(username);
             q.addBindValue(password);
             q.addBindValue(QStringLiteral("admin"));
-            q.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODateWithMs));
             if (!q.exec()) {
                 errLabel->setText(QStringLiteral("添加失败：%1").arg(q.lastError().text()));
                 errLabel->setVisible(true);

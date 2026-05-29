@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>灾后临时安置点智慧管理系统</string>
+   <string>灾后临时安置点智慧水电管理与环境监测系统</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayoutRoot">
@@ -51,7 +51,7 @@
           <string notr="true">QLabel{color:white;font-size:22px;font-weight:bold;}</string>
          </property>
          <property name="text">
-          <string>灾后临时安置点智慧管理系统</string>
+          <string>灾后临时安置点智慧水电管理与环境监测系统</string>
          </property>
         </widget>
        </item>
@@ -741,7 +741,7 @@ border-radius:6px;
                 <bool>true</bool>
                </property>
                <property name="plainText">
-                <string>系统名称：灾后临时安置点智慧管理系统
+                <string>系统名称：灾后临时安置点智慧水电管理与环境监测系统
 版本号：V1.0（教学演示版）
 开发技术：Qt 6 + Qt Widgets + Qt Charts
 
