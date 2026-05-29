@@ -130,6 +130,7 @@ private:
 
     // 往报警信息表新增一条记录（通知方式为弹窗，由实时告警对话框体现）
     void addAlarmRecord(const QString& timeText,
+                        const QString& sensorText,
                         const QString& contentText,
                         const QString& level = "预警",
                         int alarmCode = 0);
@@ -144,7 +145,8 @@ private:
     void refreshHistoryPage();
     void ensureChartBuilt(int metricIdx);
 
-    void appendRemoteControlLog(const QString& command,
+    void appendRemoteControlLog(const QString& deviceId,
+                                const QString& command,
                                 const QString& result);
     void loadRemoteExecLogTable();
     void toggleMaximizedState();
@@ -183,7 +185,7 @@ private:
     QLineSeries* m_currentSeries;
     QLineSeries* m_flowSeries;
     QDateTimeAxis* m_axisX = nullptr;
-    QValueAxis* m_axisY_Current;   // 左侧：电流(A)
+    QValueAxis* m_axisY_Current;   // 左侧：电流(mA)
     QValueAxis* m_axisY_Flow;      // 右侧：水流(L/min)
     QList<QLineSeries*> m_historyLineSeries;
     QList<QLineSeries*> m_historyLowerSeries;

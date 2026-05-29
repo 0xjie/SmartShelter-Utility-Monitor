@@ -1071,7 +1071,7 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
 
     // 实时负载大字 + 状态（使用STM32 powerStatus）
     if (m_wpLoadValueLabel != nullptr) {
-        const double curA = currentMA;
+        const double curA = currentMA / 1000.0;
         m_wpLoadValueLabel->setText(QString("%1 A").arg(QString::number(curA, 'f', 1)));
         QColor loadColor;
         if (powerStatus >= 2)        loadColor = QColor(239, 68, 68);
@@ -1084,7 +1084,7 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
         QString st;
         if (powerStatus >= 2)            st = QStringLiteral("⚠ 负载过载");
         else if (powerStatus >= 1)       st = QStringLiteral("⚡ 负载偏高");
-        else if (currentMA > 0.01)       st = QStringLiteral("✓ 负载正常");
+        else if (currentMA > 10.0)       st = QStringLiteral("✓ 负载正常");
         else                             st = QStringLiteral("— 无负载");
         m_wpLoadStatusLabel->setText(st);
     }
@@ -1473,7 +1473,7 @@ void MainWindow::onUpdateDashboardData() {
     const double temp = 23.0 + QRandomGenerator::global()->bounded(130) / 10.0;
     const double hum = 42.0 + QRandomGenerator::global()->bounded(300) / 10.0;
     const double current =
-        0.18 + static_cast<double>(QRandomGenerator::global()->bounded(42)) / 100.0;  // A，覆盖阈值区间
+        180.0 + static_cast<double>(QRandomGenerator::global()->bounded(420));  // mA，覆盖阈值区间
     const double flow = QRandomGenerator::global()->bounded(65) / 10.0;
     const double pm25 = 20.0 + QRandomGenerator::global()->bounded(1100) / 10.0;
 
