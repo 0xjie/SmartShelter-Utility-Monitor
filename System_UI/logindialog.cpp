@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QIcon>
 #include <QPaintEvent>
@@ -280,10 +281,9 @@ void LoginDialog::onLogin() {
     QString acc = m_accountEdit->text();
 
     if (!m_auth->login(acc, m_passwordEdit->text(), err)) {
-        m_globalErr->setText(err);
+        QMessageBox::warning(this, QStringLiteral("登录失败"), err);
         return;
     }
-    m_globalErr->clear();
 
     m_loginAccount = acc;
     m_loginRole = m_auth->roleForUser(acc);
