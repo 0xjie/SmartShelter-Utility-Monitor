@@ -756,6 +756,10 @@ int main(void)
                     pkt.water_remain_min = 0;
             }
 
+            // 故障检测
+            pkt.flt_count = 0;
+            if (!dht_ok)  { pkt.flt_codes[pkt.flt_count++] = FLT_DHT11; }
+
             // 发送
             Serial_SendUploadPacket(&pkt);
 
