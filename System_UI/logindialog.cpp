@@ -279,11 +279,7 @@ void LoginDialog::onLogin() {
     QString err;
     QString acc = m_accountEdit->text();
 
-    if (!m_auth->login(acc, m_passwordEdit->text(), err)) {
-        m_globalErr->setText(err);
-        return;
-    }
-    m_globalErr->clear();
+    if (!m_auth->login(acc, m_passwordEdit->text(), err)) return;
 
     m_loginAccount = acc;
     m_loginRole = m_auth->roleForUser(acc);
