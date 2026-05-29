@@ -355,7 +355,7 @@ void MainWindow::buildWaterPowerPage() {
         powerChartTitle->setStyleSheet("QLabel{color:#fbbf24;font-size:13px;font-weight:700;padding-top:4px;}");
         chartCLayout->addWidget(powerChartTitle);
 
-        m_wpUsagePowerSet = new QBarSet(QStringLiteral("用电(mAh)"));
+        m_wpUsagePowerSet = new QBarSet(QStringLiteral("用电(Ah)"));
         m_wpUsagePowerSet->setColor(QColor(245, 158, 11));
         m_wpUsagePowerSeries = new QBarSeries(this);
         m_wpUsagePowerSeries->append(m_wpUsagePowerSet);
@@ -373,7 +373,7 @@ void MainWindow::buildWaterPowerPage() {
         m_wpUsagePowerChart->addAxis(m_wpUsageAxisX_Power, Qt::AlignBottom);
         m_wpUsagePowerSeries->attachAxis(m_wpUsageAxisX_Power);
         m_wpUsageAxisY_Power = new QValueAxis(this);
-        m_wpUsageAxisY_Power->setTitleText(QStringLiteral("用电(mAh)"));
+        m_wpUsageAxisY_Power->setTitleText(QStringLiteral("用电(Ah)"));
         m_wpUsageAxisY_Power->setLabelsColor(QColor(245, 158, 11));
         m_wpUsageAxisY_Power->setGridLineColor(QColor(125, 211, 252, 35));
         m_wpUsagePowerChart->addAxis(m_wpUsageAxisY_Power, Qt::AlignLeft);
@@ -476,7 +476,7 @@ void MainWindow::buildWaterPowerPage() {
         trendPowerTitle->setStyleSheet("QLabel{color:#fbbf24;font-size:13px;font-weight:700;padding-top:4px;}");
         trendCLayout->addWidget(trendPowerTitle);
 
-        m_wpTrendPowerSet = new QBarSet(QStringLiteral("用电(mAh)"));
+        m_wpTrendPowerSet = new QBarSet(QStringLiteral("用电(Ah)"));
         m_wpTrendPowerSet->setColor(QColor(245, 158, 11));
         m_wpTrendPowerSeries = new QBarSeries(this);
         m_wpTrendPowerSeries->append(m_wpTrendPowerSet);
@@ -495,7 +495,7 @@ void MainWindow::buildWaterPowerPage() {
         m_wpTrendPowerChart->addAxis(m_wpTrendAxisX_Power, Qt::AlignBottom);
         m_wpTrendPowerSeries->attachAxis(m_wpTrendAxisX_Power);
         m_wpTrendAxisY_Power = new QValueAxis(this);
-        m_wpTrendAxisY_Power->setTitleText(QStringLiteral("用电(mAh)"));
+        m_wpTrendAxisY_Power->setTitleText(QStringLiteral("用电(Ah)"));
         m_wpTrendAxisY_Power->setLabelsColor(QColor(245, 158, 11));
         m_wpTrendAxisY_Power->setGridLineColor(QColor(125, 211, 252, 35));
         m_wpTrendPowerChart->addAxis(m_wpTrendAxisY_Power, Qt::AlignLeft);
