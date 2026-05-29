@@ -154,17 +154,8 @@ void Serial_SendUploadPacket(const UploadPacket *pkt)
     }
     pos += sprintf(buf + pos, "],");
 
-    /* action flags: bitmask int */
-    n = sprintf(buf + pos, "\"actn\":%d,", (int)pkt->action_flags);
+    n = sprintf(buf + pos, "\"actn\":%d}", (int)pkt->action_flags);
     if (n > 0 && n < (int)(sizeof(buf) - pos)) pos += n; else goto send_err;
-
-    /* faults: array of codes */
-    pos += sprintf(buf + pos, "\"flt\":[");
-    for (i = 0; i < (int)pkt->flt_count && i < 8; i++) {
-        n = sprintf(buf + pos, "%s%d", (i > 0) ? "," : "", (int)pkt->flt_codes[i]);
-        if (n > 0 && n < (int)(sizeof(buf) - pos)) pos += n; else goto send_err;
-    }
-    pos += sprintf(buf + pos, "]}");
 
     buf[sizeof(buf) - 1] = '\0';
     Serial_SendString(buf);

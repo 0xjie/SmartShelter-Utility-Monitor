@@ -52,11 +52,6 @@
     if (flags & ACT_FLAG_SERVO_CLOSE)acts.push('窗户已关闭');
     return acts;
   }
-  // 故障码→中文
-  const FAULT_MSG = {
-    901:'DHT11离线',902:'MQ135离线',903:'GP2Y10离线',904:'ACS712离线',905:'水流传感器离线'
-  };
-
   let mqttClient = null;
   let tipIndex = 0;
   let forecastTipIndex = 0;
@@ -321,7 +316,7 @@
       raw = raw.payload;
     }
 
-    // 新协议：sen/lv/act/mod/alm(数组)/actn(位掩码)/flt(数组)/res
+    // 新协议：sen/lv/act/mod/alm(数组)/actn(位掩码)/res
     if (raw.sen) {
       return {
         sen: { t: raw.sen.t, h: raw.sen.h, pm: raw.sen.pm, aq: raw.sen.aq, f: raw.sen.f, i: raw.sen.i },
@@ -335,7 +330,6 @@
         mod: raw.mod || {},
         alm: Array.isArray(raw.alm) ? raw.alm : [],
         actn: typeof raw.actn === 'number' ? raw.actn : 0,
-        flt: Array.isArray(raw.flt) ? raw.flt : [],
         th: raw.th || null
       };
     }
@@ -347,7 +341,7 @@
         sen: { t: raw.t, h: raw.h, pm: raw.p || raw.pm, aq: raw.a || raw.aq, f: raw.f, i: raw.i },
         res: { bp: raw.bp, wp: raw.wp, tu: raw.tu, wu: raw.wu },
         lv: { link: lv, env: lv, d: [lv,lv,lv,lv,lv,lv] },
-        act: {}, mod: {}, alm: [], actn: 0, flt: []
+        act: {}, mod: {}, alm: [], actn: 0
       };
     }
 
