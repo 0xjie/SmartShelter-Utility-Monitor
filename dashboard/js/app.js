@@ -64,7 +64,7 @@
   /* ===== 今日已用（STM32直接上传，不做端侧累加） ===== */
 
   /* ===== 级别色映射 ===== */
-  function lvClass(lv) { return lv === 2 ? 'danger' : lv === 1 ? 'warn' : 'ok'; }
+  function lvClass(lv) { return lv === 2 ? 'red' : lv === 1 ? 'yellow' : 'green'; }
   function lvTag(lv)   { return lv === 2 ? '告警' : lv === 1 ? '预警' : '正常'; }
 
   /* ===== 顶部状态栏 ===== */
