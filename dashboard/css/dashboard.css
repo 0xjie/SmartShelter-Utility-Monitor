@@ -462,7 +462,7 @@ html, body {
   color: var(--green); font-weight: 600;
 }
 .res-main { display: flex; align-items: center; justify-content: center; gap: clamp(10px, 1.5vw, 24px); padding: 2px 0; }
-.battery-svg { width: clamp(40px, 3.5vw, 60px); height: auto; flex-shrink: 0; }
+.battery-svg { width: clamp(40px, 3.5vw, 60px); height: clamp(60px, 7vh, 90px); flex-shrink: 0; }
 .bat-fill { transition: y 0.8s ease, height 0.8s ease, fill 0.5s; }
 .tank-wrap { width: clamp(40px, 3.5vw, 56px); height: clamp(60px, 7vh, 90px); flex-shrink: 0; }
 .tank-body {
