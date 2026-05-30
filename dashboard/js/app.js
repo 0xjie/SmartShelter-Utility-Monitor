@@ -176,6 +176,9 @@
   }
 
   function setBat(pct, amp, usedMAh, remainMAh, remainMin, powerStatus, batCapMAh) {
+    var resLv = (pct != null && !Number.isNaN(pct)) ? (pct <= 10 ? 2 : pct <= 20 ? 1 : 0) : 0;
+    var predColor = resLv === 2 ? '#EF4444' : resLv === 1 ? '#F59E0B' : '#10B981';
+
     var pctEl = document.getElementById('batPct');
     var fillEl = document.getElementById('batFill');
     if (pctEl) {
@@ -186,7 +189,7 @@
       var w = (pct != null && !Number.isNaN(pct)) ? Math.max(0, Math.min(pct, 100)) : 0;
       fillEl.setAttribute('y', 169 - 138 * w / 100);
       fillEl.setAttribute('height', 138 * w / 100);
-      fillEl.setAttribute('fill', w >= 60 ? 'url(#batFillGrad)' : w >= 30 ? '#F59E0B' : '#EF4444');
+      fillEl.setAttribute('fill', resLv === 2 ? '#EF4444' : resLv === 1 ? '#F59E0B' : 'url(#batFillGrad)');
     }
     var predEl = document.getElementById('powerPredict');
     var todayEl = document.getElementById('powerToday');
@@ -199,10 +202,13 @@
         predEl.innerHTML = '预计剩余可用时间：约 <strong>' + Math.round(remainMin / 60) + '</strong> 小时';
       else
         predEl.innerHTML = '预计剩余可用时间：约 <strong>' + Math.round(remainMin) + '</strong> 分钟';
+      predEl.style.color = predColor;
     } else if (predEl && amp <= 0.01) {
       predEl.innerHTML = '当前无负载';
+      predEl.style.color = '';
     } else if (predEl) {
       predEl.innerHTML = '预计剩余可用时间：约 --';
+      predEl.style.color = '';
     }
     if (todayEl) {
       var capMAh = (batCapMAh > 0) ? batCapMAh : ((usedMAh || 0) + (remainMAh || 0));
@@ -214,12 +220,18 @@
       else if ((amp || 0) > 0.01) { lineEl.textContent = '正常'; lineEl.style.color = ''; }
       else                       { lineEl.textContent = '--'; lineEl.style.color = ''; }
     }
-    if (badgeEl) badgeEl.textContent = (pct != null && pct > 30) ? '电力供应充足' : (pct > 10 ? '电力不足' : '电力告急');
+    if (badgeEl) badgeEl.textContent = resLv === 2 ? '电力告急' : resLv === 1 ? '电力不足' : '电力供应充足';
     var card = document.getElementById('resPower');
-    if (card) card.classList.toggle('res-card--critical', pct != null && pct < 10);
+    if (card) {
+      card.classList.toggle('res-card--critical', resLv === 2);
+      card.classList.toggle('res-card--warn', resLv === 1);
+    }
   }
 
   function setTank(pct, flow, usedCL, remainCL, remainMin, tankCapCL) {
+    var resLv = (pct != null && !Number.isNaN(pct)) ? (pct <= 10 ? 2 : pct <= 20 ? 1 : 0) : 0;
+    var predColor = resLv === 2 ? '#EF4444' : resLv === 1 ? '#F59E0B' : '#10B981';
+
     var pctEl = document.getElementById('wtrPct');
     var fillEl = document.getElementById('tankFill');
     var remainL = (remainCL || 0) / 100;  // cL→L，STM32直接值
@@ -230,11 +242,11 @@
     if (fillEl) {
       var w = (pct != null && !Number.isNaN(pct)) ? Math.max(0, Math.min(pct, 100)) : 0;
       fillEl.style.height = w + '%';
-      fillEl.style.background = w >= 60
-        ? 'linear-gradient(180deg, #60A5FA 0%, #3B82F6 50%, #2563EB 100%)'
-        : w >= 30
+      fillEl.style.background = resLv === 2
+        ? 'linear-gradient(180deg, #F87171 0%, #EF4444 100%)'
+        : resLv === 1
           ? 'linear-gradient(180deg, #FBBF24 0%, #F59E0B 100%)'
-          : 'linear-gradient(180deg, #F87171 0%, #EF4444 100%)';
+          : 'linear-gradient(180deg, #60A5FA 0%, #3B82F6 50%, #2563EB 100%)';
     }
     var predEl = document.getElementById('waterPredict');
     var todayEl = document.getElementById('waterToday');
@@ -246,18 +258,24 @@
         predEl.innerHTML = '预计剩余可用时间：约 <strong>' + Math.round(remainMin / 60) + '</strong> 小时';
       else
         predEl.innerHTML = '预计剩余可用时间：约 <strong>' + Math.round(remainMin) + '</strong> 分钟';
+      predEl.style.color = predColor;
     } else if (predEl && flow != null && flow <= 0.01) {
       predEl.innerHTML = '当前无用水';
+      predEl.style.color = '';
     } else if (predEl) {
       predEl.innerHTML = '预计剩余可用时间：约 --';
+      predEl.style.color = '';
     }
     if (todayEl) {
       var capCL = (tankCapCL > 0) ? tankCapCL : ((usedCL || 0) + (remainCL || 0));
       todayEl.textContent = (Math.min((usedCL || 0), capCL) / 100).toFixed(1) + ' L';
     }
-    if (badgeEl) badgeEl.textContent = (pct != null && pct > 30) ? '供水正常' : (pct > 10 ? '水量不足' : '缺水告急');
+    if (badgeEl) badgeEl.textContent = resLv === 2 ? '缺水告急' : resLv === 1 ? '水量不足' : '供水正常';
     var card = document.getElementById('resWater');
-    if (card) card.classList.toggle('res-card--critical', pct != null && pct < 10);
+    if (card) {
+      card.classList.toggle('res-card--critical', resLv === 2);
+      card.classList.toggle('res-card--warn', resLv === 1);
+    }
   }
 
   // 通过告警码推断级别: 101,111,121,131,141,151 → WARN(1); 102,112,122,132,142,152,200-202 → ALARM(2)

@@ -534,11 +534,12 @@ html, body {
 .alarm-item {
   font-size: clamp(12px, 0.6vw, 14px);
   padding: 8px 12px; border-radius: 12px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-weight: 500;
+  font-weight: 500; line-height: 1.5;
 }
 .alarm-item--warn { background: rgba(245,158,11,0.1); color: var(--yellow); }
 .alarm-item--danger { background: rgba(239,68,68,0.1); color: var(--red); font-weight: 600; }
+.alarm-time { display: block; font-size: 11px; opacity: 0.65; margin-bottom: 2px; }
+.alarm-msg { display: block; }
 
 /* ===== 底栏 ===== */
 .footer {
@@ -578,6 +579,19 @@ html, body {
 .res-card--critical .res-big-val {
   color: #FCA5A5;
   text-shadow: 0 0 16px rgba(239, 68, 68, 0.5);
+}
+
+/* 水电不足（10%~20%） */
+.res-card--warn {
+  background: linear-gradient(135deg, rgba(146, 100, 0, 0.15) 0%, rgba(245, 158, 11, 0.08) 60%, rgba(252, 211, 77, 0.03) 100%) !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+.res-card--warn .res-badge {
+  background: rgba(245, 158, 11, 0.22);
+  color: #FCD34D;
+}
+.res-card--warn .res-big-val {
+  color: #FCD34D;
 }
 
 /* ===== 一键求助浮动按钮 ===== */
@@ -848,8 +862,45 @@ html, body {
   .help-option { font-size: 12px; padding: 7px 10px; }
 }
 
+/* ===== 数据离线遮罩弹窗 ===== */
+.offline-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+  z-index: 9999; display: flex; align-items: center; justify-content: center;
+  animation: overlayFadeIn 0.3s ease;
+}
+@keyframes overlayFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.offline-card {
+  background: linear-gradient(145deg, #1e293b, #0f172a);
+  border: 2px solid rgba(239,68,68,0.5); border-radius: 20px;
+  padding: 40px 48px; text-align: center; min-width: 360px;
+  box-shadow: 0 0 60px rgba(239,68,68,0.2);
+  animation: offlinePulse 2s ease-in-out infinite;
+}
+@keyframes offlinePulse {
+  0%, 100% { box-shadow: 0 0 40px rgba(239,68,68,0.15); }
+  50% { box-shadow: 0 0 80px rgba(239,68,68,0.35); }
+}
+
+.offline-icon { font-size: 64px; margin-bottom: 16px; animation: iconBlink 1.5s ease-in-out infinite; }
+@keyframes iconBlink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.1); }
+}
+
+.offline-title { font-size: 22px; font-weight: 800; color: #fca5a5; margin-bottom: 8px; }
+.offline-desc { font-size: 14px; color: #94a3b8; margin-bottom: 20px; line-height: 1.5; }
+.offline-spinner {
+  width: 36px; height: 36px; margin: 0 auto;
+  border: 3px solid rgba(239,68,68,0.2); border-top-color: #ef4444;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* 极小屏：<400px → 指标卡单列 */
 @media (max-width: 400px) {
   .metrics-grid { grid-template-columns: 1fr; }
   .forecast-wrap { min-height: 140px; }
+  .offline-card { min-width: 280px; padding: 28px 24px; }
 }
