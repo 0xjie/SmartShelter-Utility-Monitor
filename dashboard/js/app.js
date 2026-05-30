@@ -195,7 +195,10 @@
     var todayEl = document.getElementById('powerToday');
     var lineEl = document.getElementById('powerLineStatus');
     var badgeEl = document.getElementById('powerBadge');
-    if (predEl && remainMin > 0) {
+    if (predEl && pct != null && !Number.isNaN(pct) && pct <= 0) {
+      predEl.innerHTML = '当前电量已耗尽';
+      predEl.style.color = '#EF4444';
+    } else if (predEl && remainMin > 0) {
       if (remainMin >= 1440)
         predEl.innerHTML = '预计剩余可用时间：约 <strong>' + (remainMin / 1440).toFixed(1) + '</strong> 天';
       else if (remainMin >= 60)
@@ -203,7 +206,7 @@
       else
         predEl.innerHTML = '预计剩余可用时间：约 <strong>' + Math.round(remainMin) + '</strong> 分钟';
       predEl.style.color = predColor;
-    } else if (predEl && amp <= 0.01) {
+    } else if (predEl && amp != null && amp <= 0.01) {
       predEl.innerHTML = '当前无负载';
       predEl.style.color = '';
     } else if (predEl) {
@@ -251,7 +254,10 @@
     var predEl = document.getElementById('waterPredict');
     var todayEl = document.getElementById('waterToday');
     var badgeEl = document.getElementById('waterBadge');
-    if (predEl && remainMin > 0) {
+    if (predEl && pct != null && !Number.isNaN(pct) && pct <= 0) {
+      predEl.innerHTML = '当前水量已耗尽';
+      predEl.style.color = '#EF4444';
+    } else if (predEl && remainMin > 0) {
       if (remainMin >= 1440)
         predEl.innerHTML = '预计剩余可用时间：约 <strong>' + (remainMin / 1440).toFixed(1) + '</strong> 天';
       else if (remainMin >= 60)
