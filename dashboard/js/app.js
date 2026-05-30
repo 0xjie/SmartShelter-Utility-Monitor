@@ -67,6 +67,41 @@
   function lvClass(lv) { return lv === 2 ? 'red' : lv === 1 ? 'yellow' : 'green'; }
   function lvTag(lv)   { return lv === 2 ? '告警' : lv === 1 ? '预警' : '正常'; }
 
+  /* ===== 本地阈值（STM32 默认值，th 字段实时更新告警阈值） ===== */
+  var storedTh = {
+    ta: 38, tb: 10,   // 温度告警 高/低
+    ha: 85, hb: 20,   // 湿度告警 高/低
+    pa: 150, aa: 200, // PM2.5/AQ 告警
+    tw: 32, tc: 18,   // 温度预警 高/低（STM32 默认，不变）
+    hw: 70, hd: 30,   // 湿度预警 高/低（STM32 默认，不变）
+    pw: 75, aw: 100   // PM2.5/AQ 预警（STM32 默认，不变）
+  };
+
+  /** 根据传感器数值 + 本地阈值直接计算级别，不受 STM32 滞回影响 */
+  function calcMetricLevel(val, id) {
+    if (val == null || isNaN(val)) return 0;
+    var th = storedTh;
+    switch (id) {
+      case 't':
+        if (val >= th.ta || val <= th.tb) return 2;
+        if (val >= th.tw || val <= th.tc) return 1;
+        return 0;
+      case 'h':
+        if (val >= th.ha || val <= th.hb) return 2;
+        if (val >= th.hw || val <= th.hd) return 1;
+        return 0;
+      case 'pm':
+        if (val >= th.pa) return 2;
+        if (val >= th.pw) return 1;
+        return 0;
+      case 'aq':
+        if (val >= th.aa) return 2;
+        if (val >= th.aw) return 1;
+        return 0;
+      default: return 0;
+    }
+  }
+
   /* ===== 顶部状态栏 ===== */
   function updateTopBar(linkLv) {
     var icon = document.getElementById('statusIcon');
@@ -85,15 +120,33 @@
     }
   }
 
-  /* ===== 左栏：2×2 指标卡（从 lv.d 读取级别，不再自行计算） ===== */
+  /* ===== 左栏：2×2 指标卡（根据数值+本地阈值直接计算颜色，不受 STM32 滞回影响） ===== */
   function updateMetrics(data) {
     var sen = data.sen || {};
-    var d = (data.lv && data.lv.d) ? data.lv.d : [0,0,0,0,0,0];
-    var dlMap = { t: d[0] || 0, h: d[1] || 0, pm: d[2] || 0, aq: d[3] || 0, cur: d[4] || 0, flw: d[5] || 0 };
+
+    // 更新告警阈值（STM32 每包都发 th）
+    if (data.th) {
+      var th = data.th;
+      if (th.ta !== undefined) storedTh.ta = th.ta;
+      if (th.tb !== undefined) storedTh.tb = th.tb;
+      if (th.ha !== undefined) storedTh.ha = th.ha;
+      if (th.hb !== undefined) storedTh.hb = th.hb;
+      if (th.pa !== undefined) storedTh.pa = th.pa;
+      if (th.aa !== undefined) storedTh.aa = th.aa;
+
+      var rTemp = document.getElementById('mrangeTemp');
+      var rHum  = document.getElementById('mrangeHum');
+      var rPm   = document.getElementById('mrangePm');
+      var rAq   = document.getElementById('mrangeAq');
+      if (rTemp) rTemp.textContent = '告警 <' + (th.tb || '?') + ' 或 >' + (th.ta || '?') + '℃';
+      if (rHum)  rHum.textContent  = '告警 <' + (th.hb || '?') + ' 或 >' + (th.ha || '?') + '%';
+      if (rPm)   rPm.textContent   = '预警≥' + Math.round((th.pa || 150) / 2) + ' 告警≥' + (th.pa || '?') + 'μg/m³';
+      if (rAq)   rAq.textContent   = '预警≥' + Math.round((th.aa || 200) / 2) + ' 告警≥' + (th.aa || '?') + 'ppm';
+    }
 
     METRICS.forEach(function (m) {
       var val = sen[m.key];
-      var lv = dlMap[m.id] || 0;
+      var lv = calcMetricLevel(val, m.id);
       var cls = lvClass(lv);
 
       var valEl = document.getElementById('mval' + (m.id === 't' ? 'Temp' : m.id === 'h' ? 'Hum' : m.id === 'pm' ? 'Pm' : 'Aq'));
@@ -104,19 +157,6 @@
       if (tagEl) tagEl.textContent = lvTag(lv);
       if (cardEl) cardEl.className = 'mcard mcard--' + cls;
     });
-
-    // 同步阈值显示（QT 下发后 STM32 上行 th 字段）
-    if (data.th) {
-      var th = data.th;
-      var rTemp = document.getElementById('mrangeTemp');
-      var rHum  = document.getElementById('mrangeHum');
-      var rPm   = document.getElementById('mrangePm');
-      var rAq   = document.getElementById('mrangeAq');
-      if (rTemp) rTemp.textContent = '告警 <' + (th.tb || '?') + ' 或 >' + (th.ta || '?') + '℃';
-      if (rHum)  rHum.textContent  = '告警 <' + (th.hb || '?') + ' 或 >' + (th.ha || '?') + '%';
-      if (rPm)   rPm.textContent   = '预警≥' + Math.round((th.pa || 150) / 2) + ' 告警≥' + (th.pa || '?') + 'μg/m³';
-      if (rAq)   rAq.textContent   = '预警≥' + Math.round((th.aa || 200) / 2) + ' 告警≥' + (th.aa || '?') + 'ppm';
-    }
 
     currentLinkLevel = (data.lv && data.lv.link != null) ? data.lv.link : 0;
     updateTopBar(currentLinkLevel);
