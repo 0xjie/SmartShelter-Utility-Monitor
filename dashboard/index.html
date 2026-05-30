@@ -204,10 +204,9 @@
         <div class="alarm-card">
           <div class="alarm-header">
             <span class="alarm-title" style="color:#EF4444">⚠ 实时报警</span>
-            <span class="alarm-status" id="alarmStatus">当前无实时报警</span>
+            <span class="alarm-status" id="alarmStatus">✅ 当前无实时报警</span>
           </div>
           <div class="alarm-list" id="alarmList">
-            <span class="alarm-empty">✅ 当前无实时报警</span>
           </div>
         </div>
 
@@ -215,14 +214,23 @@
         <div class="alarm-card">
           <div class="alarm-header">
             <span class="alarm-title" style="color:#F59E0B">📋 预警信息</span>
-            <span class="alarm-status" id="warnStatus">当前无预警信息</span>
+            <span class="alarm-status" id="warnStatus">✅ 当前无预警信息</span>
           </div>
           <div class="alarm-list" id="warnList">
-            <span class="alarm-empty">✅ 当前无预警信息</span>
           </div>
         </div>
       </div>
 
+    </div>
+
+    <!-- ===== 数据离线遮罩弹窗 ===== -->
+    <div class="offline-overlay" id="offlineOverlay" style="display:none;">
+      <div class="offline-card">
+        <div class="offline-icon">⚠</div>
+        <div class="offline-title" id="offlineTitle">设备离线</div>
+        <div class="offline-desc" id="offlineDesc">数据连接已中断，请检查设备是否正常运行</div>
+        <div class="offline-spinner"></div>
+      </div>
     </div>
 
     <!-- ===== 联动弹窗 Toast ===== -->

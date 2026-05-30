@@ -23,8 +23,8 @@ static uint16_t HUMI_ALARM_H  = 85;   // ha → hw=70
 static uint16_t HUMI_ALARM_L  = 20;   // hb → hd=30
 static uint16_t PM25_ALARM    = 150;  // pa → ph=75
 static uint16_t AQ_ALARM      = 200;  // aa → aq=100
-static uint16_t CUR_ALARM     = 15;   // ca → ci=10
-static uint16_t FLW_ALARM     = 10;   // fa → fl=5
+static uint16_t CUR_ALARM     = 20;   // ca → ci=10
+static uint16_t FLW_ALARM     = 20;   // fa → fl=5
 // 预警阈值（由告警自动推导，也可通过旧命令直接覆盖）
 static uint16_t TEMP_WARN_H   = 32;
 static uint16_t TEMP_WARN_L   = 18;
@@ -83,11 +83,11 @@ static void reset_thresholds_to_default(void) {
 
 // 水电剩余量模拟
 static uint16_t BATTERY_CAPACITY_mAh = 10000;
-static uint16_t TANK_CAPACITY_L      = 10;
+static uint16_t TANK_CAPACITY_L      = 100;
 
 // 传感器缩放系数（DEMO：放大到真实比例；真实场景改为1）
 #define CUR_SCALE  10    // 电流×10: 400mA→4A
-#define FLW_SCALE  5     // 水流×5
+#define FLW_SCALE  1     // 水流真实值（不再放大）
 
 #define LINK_NORMAL  0
 #define LINK_WARN    1
@@ -305,7 +305,6 @@ int main(void)
     OLED_Init();
     GP2Y_Init();
     Servo_Init();
-    Motor_Init();
     Serial_Init();
     ACS712_Init();
     OLED_Clear();
@@ -422,6 +421,8 @@ int main(void)
             battery_used_mAh += (float)rpt_ma / 3600.0f;
             if (battery_used_mAh >= BATTERY_CAPACITY_mAh)
                 battery_used_mAh = (float)BATTERY_CAPACITY_mAh;
+            if (total_flow_L >= TANK_CAPACITY_L)
+                total_flow_L = TANK_CAPACITY_L;
             battery_pct = (uint8_t)((1.0f - battery_used_mAh / BATTERY_CAPACITY_mAh) * 100.0f);
             water_pct = (uint8_t)((1.0f - total_flow_L / TANK_CAPACITY_L) * 100.0f);
             if (water_pct > 100) water_pct = 100;
@@ -628,15 +629,13 @@ int main(void)
                 }
             }
 
-            // 全传感器最差级别 → link_level
+            // 全传感器最差级别 → link_level（水流/电流不参与联动）
             link_level = LINK_NORMAL;
             if (temp_level == LINK_ALARM || humi_level == LINK_ALARM ||
-                pm25_level == LINK_ALARM || aq_level  == LINK_ALARM ||
-                cur_level  == LINK_ALARM || flw_level == LINK_ALARM)
+                pm25_level == LINK_ALARM || aq_level  == LINK_ALARM)
                 link_level = LINK_ALARM;
             else if (temp_level == LINK_WARN || humi_level == LINK_WARN ||
-                     pm25_level == LINK_WARN || aq_level  == LINK_WARN ||
-                     cur_level  == LINK_WARN || flw_level == LINK_WARN)
+                     pm25_level == LINK_WARN || aq_level  == LINK_WARN)
                 link_level = LINK_WARN;
 
             // 环境级别（温湿PM2.5/AQ） → env_level
@@ -666,8 +665,8 @@ int main(void)
             else if (env_level == LINK_WARN)  { fan_auto_on = 1; servo_auto_angle = 0; }
             else                              { fan_auto_on = 0; servo_auto_angle = 0; }
 
+            // 水流+电流组合仅上报告警码，不执行任何措施
             if (is_warn_or_alarm(flw_level) && is_warn_or_alarm(cur_level)) {
-                fan_auto_on = 0;
                 combo_flw_cur = 1;
             }
 
@@ -751,7 +750,7 @@ int main(void)
             {
                 float remain_L = (float)water_pct / 100.0f * (float)TANK_CAPACITY_L;
                 if (rpt_f > 0.01f)
-                    pkt.water_remain_min = (uint16_t)((remain_L / rpt_f) * 60.0f + 0.5f);
+                    pkt.water_remain_min = (uint16_t)(remain_L / rpt_f + 0.5f);
                 else
                     pkt.water_remain_min = 0;
             }
@@ -778,7 +777,7 @@ int main(void)
                 OLED_ShowString(1, 1, line);
                 snprintf(line, sizeof(line), "PM:%3u AQ:%3u ", (unsigned int)pm25_ugm3, (unsigned int)aq_ppm);
                 OLED_ShowString(2, 1, line);
-                snprintf(line, sizeof(line), "Flow:%4.2fL/m  ", flow_lpm);
+                snprintf(line, sizeof(line), "Flow:%4.2fL/m  ", (double)rpt_f);
                 OLED_ShowString(3, 1, line);
                 {
                     int cur_a = (int)rpt_ma / 1000;

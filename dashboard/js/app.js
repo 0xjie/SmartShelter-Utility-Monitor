@@ -74,13 +74,13 @@
     var status = document.getElementById('sysStatus');
     if (!icon || !text || !status) return;
     if (linkLv === 0) {
-      icon.textContent = '✓'; text.textContent = '系统运行正常';
+      icon.textContent = '✓'; icon.style.color = '#22c55e'; text.textContent = '系统运行正常';
       status.style.borderColor = 'rgba(16,185,129,0.3)';
     } else if (linkLv === 1) {
-      icon.textContent = '!'; text.textContent = '系统存在预警';
+      icon.textContent = '!'; icon.style.color = '#f59e0b'; text.textContent = '系统存在预警';
       status.style.borderColor = 'rgba(245,158,11,0.3)';
     } else {
-      icon.textContent = '✗'; text.textContent = '系统存在异常';
+      icon.textContent = '✗'; icon.style.color = '#ef4444'; text.textContent = '系统存在异常';
       status.style.borderColor = 'rgba(239,68,68,0.4)';
     }
   }
@@ -131,11 +131,11 @@
     var amp = sen.i;
     var flow = sen.f;
 
-    setBat(bp, amp, res.tu || 0, res.br || 0, res.bt || 0, res.ps || 0);
-    setTank(wp, flow, res.wu || 0, res.wr || 0, res.wt || 0);
+    setBat(bp, amp, res.tu || 0, res.br || 0, res.bt || 0, res.ps || 0, res.bc || 0);
+    setTank(wp, flow, res.wu || 0, res.wr || 0, res.wt || 0, res.tc || 0);
   }
 
-  function setBat(pct, amp, usedMAh, remainMAh, remainMin, powerStatus) {
+  function setBat(pct, amp, usedMAh, remainMAh, remainMin, powerStatus, batCapMAh) {
     var pctEl = document.getElementById('batPct');
     var fillEl = document.getElementById('batFill');
     if (pctEl) {
@@ -165,7 +165,8 @@
       predEl.innerHTML = '预计剩余可用时间：约 --';
     }
     if (todayEl) {
-      todayEl.textContent = ((usedMAh || 0) / 1000).toFixed(1) + ' Ah';
+      var capMAh = (batCapMAh > 0) ? batCapMAh : ((usedMAh || 0) + (remainMAh || 0));
+      todayEl.textContent = (Math.min((usedMAh || 0), capMAh) / 1000).toFixed(1) + ' Ah';
     }
     if (lineEl) {
       if (powerStatus >= 2)      { lineEl.textContent = '过载'; lineEl.style.color = '#EF4444'; }
@@ -178,7 +179,7 @@
     if (card) card.classList.toggle('res-card--critical', pct != null && pct < 10);
   }
 
-  function setTank(pct, flow, usedCL, remainCL, remainMin) {
+  function setTank(pct, flow, usedCL, remainCL, remainMin, tankCapCL) {
     var pctEl = document.getElementById('wtrPct');
     var fillEl = document.getElementById('tankFill');
     var remainL = (remainCL || 0) / 100;  // cL→L，STM32直接值
@@ -211,7 +212,8 @@
       predEl.innerHTML = '预计剩余可用时间：约 --';
     }
     if (todayEl) {
-      todayEl.textContent = ((usedCL || 0) / 100).toFixed(1) + ' L';
+      var capCL = (tankCapCL > 0) ? tankCapCL : ((usedCL || 0) + (remainCL || 0));
+      todayEl.textContent = (Math.min((usedCL || 0), capCL) / 100).toFixed(1) + ' L';
     }
     if (badgeEl) badgeEl.textContent = (pct != null && pct > 30) ? '供水正常' : (pct > 10 ? '水量不足' : '缺水告急');
     var card = document.getElementById('resWater');
@@ -221,46 +223,102 @@
   // 通过告警码推断级别: 101,111,121,131,141,151 → WARN(1); 102,112,122,132,142,152,200-202 → ALARM(2)
   function alarmLvFromCode(code) { return (code % 10 === 2 || code >= 200) ? 2 : 1; }
 
-  /* ===== 右栏：报警/预警（alm 为数字码数组，actn 为位掩码） ===== */
+  // 报警事件日志：{ code, msg, lv, start, end }
+  // end 为 null 表示仍在进行中
+  var alarmEventLog = [];
+
+  /* ===== 右栏：报警/预警（事件堆叠，不消失） ===== */
   function updateAlarms(data) {
     var codes = data.alm || [];
-    var dangers = [], warns = [];
+    var now = new Date();
+    var nowStr = now.toLocaleTimeString();
+    var nowISO = now.toISOString();
+
+    // 当前活跃的告警码集合
+    var activeCodes = {};
     (Array.isArray(codes) ? codes : []).forEach(function(c) {
-      var lv = alarmLvFromCode(c);
-      var msg = ALARM_MSG[c] || ('Code ' + c);
-      (lv >= 2 ? dangers : warns).push({c: c, m: msg, lv: lv});
+      var msg = ALARM_MSG[c];
+      if (msg) activeCodes[c] = { code: c, msg: msg, lv: alarmLvFromCode(c) };
     });
-    var actFlags = typeof data.actn === 'number' ? data.actn : 0;
-    var actions = actionFlagsToText(actFlags);
 
-    var alarmListEl  = document.getElementById('alarmList');
-    var alarmStatusEl = document.getElementById('alarmStatus');
-    var warnListEl   = document.getElementById('warnList');
-    var warnStatusEl = document.getElementById('warnStatus');
-    var now = new Date().toLocaleTimeString();
-
-    if (alarmListEl && alarmStatusEl) {
-      if (dangers.length === 0) {
-        alarmListEl.innerHTML = '<span class="alarm-empty">✅ 当前无实时报警</span>';
-        alarmStatusEl.textContent = '当前无实时报警'; alarmStatusEl.style.color = '#10B981';
-      } else {
-        alarmListEl.innerHTML = dangers.map(function(a) {
-          return '<div class="alarm-item alarm-item--danger">' + now + ' ' + a.m + ' (码:' + a.c + ')</div>';
-        }).join('') + (actions.length ? '<div class="alarm-action">已采取措施：' + actions.join(' / ') + '</div>' : '');
-        alarmStatusEl.textContent = dangers.length + ' 条报警'; alarmStatusEl.style.color = '#EF4444';
+    // 结束已不再活跃的事件
+    for (var i = 0; i < alarmEventLog.length; i++) {
+      var ev = alarmEventLog[i];
+      if (ev.end === null && !activeCodes[ev.code]) {
+        ev.end = nowISO;
       }
     }
-    if (warnListEl && warnStatusEl) {
-      if (warns.length === 0) {
-        warnListEl.innerHTML = '<span class="alarm-empty">✅ 当前无预警信息</span>';
-        warnStatusEl.textContent = '当前无预警信息'; warnStatusEl.style.color = '#10B981';
+
+    // 新出现的事件加入日志（按 code 去重：只有日志中没有"进行中"的同码事件才新增）
+    Object.keys(activeCodes).forEach(function(c) {
+      var active = activeCodes[c];
+      var dup = false;
+      for (var i = 0; i < alarmEventLog.length; i++) {
+        if (alarmEventLog[i].code === active.code && alarmEventLog[i].end === null) {
+          dup = true; break;
+        }
+      }
+      if (!dup) {
+        alarmEventLog.push({
+          code: active.code,
+          msg: active.msg,
+          lv: active.lv,
+          start: nowISO,
+          end: null
+        });
+      }
+    });
+
+    // 只保留最近 100 条
+    if (alarmEventLog.length > 100) {
+      alarmEventLog = alarmEventLog.slice(-100);
+    }
+
+    // 渲染：最新的在上
+    var renderEvents = alarmEventLog.slice().reverse();
+    var dangers = renderEvents.filter(function(e) { return e.lv >= 2; });
+    var warns   = renderEvents.filter(function(e) { return e.lv === 1; });
+
+    function fmtTime(iso) {
+      var d = new Date(iso);
+      return d.toLocaleTimeString();
+    }
+
+    function renderList(events, listEl, statusEl, cls, statusColor, emptyText) {
+      if (!listEl || !statusEl) return;
+      var activeEvts = events.filter(function(e) { return e.end === null; });
+      var endedEvts  = events.filter(function(e) { return e.end !== null; });
+      var activeCount = activeEvts.length;
+
+      var html = '';
+      // 活跃事件
+      activeEvts.forEach(function(e) {
+        html += '<div class="alarm-item ' + cls + '">' +
+          '<span class="alarm-time">' + fmtTime(e.start) + ' <span style="color:#f87171;font-weight:700">● 进行中</span></span>' +
+          '<span class="alarm-msg">' + e.msg + '</span>' +
+          '</div>';
+      });
+      // 已结束的事件（用更淡的样式）
+      endedEvts.forEach(function(e) {
+        html += '<div class="alarm-item ' + cls + '" style="opacity:0.55">' +
+          '<span class="alarm-time">' + fmtTime(e.start) + ' ~ ' + fmtTime(e.end) + '</span>' +
+          '<span class="alarm-msg">' + e.msg + '</span>' +
+          '</div>';
+      });
+
+      listEl.innerHTML = html;
+
+      if (activeCount > 0) {
+        statusEl.textContent = '✅ ' + activeCount + ' 条' + emptyText.replace('当前无', ''); statusEl.style.color = statusColor;
       } else {
-        warnListEl.innerHTML = warns.map(function(a) {
-          return '<div class="alarm-item alarm-item--warn">' + now + ' ' + a.m + ' (码:' + a.c + ')</div>';
-        }).join('') + (actions.length ? '<div class="alarm-action">已采取措施：' + actions.join(' / ') + '</div>' : '');
-        warnStatusEl.textContent = warns.length + ' 条预警'; warnStatusEl.style.color = '#F59E0B';
+        statusEl.textContent = '✅ ' + emptyText; statusEl.style.color = '#10B981';
       }
     }
+
+    renderList(dangers, document.getElementById('alarmList'), document.getElementById('alarmStatus'),
+               'alarm-item--danger', '#EF4444', '当前无实时报警');
+    renderList(warns, document.getElementById('warnList'), document.getElementById('warnStatus'),
+               'alarm-item--warn', '#F59E0B', '当前无预警信息');
   }
 
   /* ===== Toast 弹窗（从 alm 读取） ===== */
@@ -285,7 +343,7 @@
     var codes = (Array.isArray(data.alm) ? data.alm : []).map(function(c) { return typeof c === 'number' ? c : (c.c || 0); });
     var actFlags = typeof data.actn === 'number' ? data.actn : 0;
     var actions = actionFlagsToText(actFlags);
-    var alarmItems = codes.map(function(c) { return (ALARM_MSG[c] || ('Code ' + c)) + ' (码:' + c + ')'; });
+    var alarmItems = codes.map(function(c) { return ALARM_MSG[c] || ''; }).filter(Boolean);
 
     var html = '';
     if (linkLv === 2) {
@@ -349,7 +407,29 @@
   }
 
   /* ===== 数据应用 ===== */
+  var lastDataTime = 0;
+
+  function dismissOfflineOverlay() {
+    var overlay = document.getElementById('offlineOverlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  function showOfflineOverlay(isFirstConnect) {
+    var overlay = document.getElementById('offlineOverlay');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    var title = document.getElementById('offlineTitle');
+    var desc = document.getElementById('offlineDesc');
+    if (title) title.textContent = isFirstConnect ? '等待设备连接' : '设备离线';
+    if (desc) desc.textContent = isFirstConnect
+      ? '正在等待设备上报数据，请确认设备已通电并联网...'
+      : '数据连接已中断，请检查设备是否正常运行';
+  }
+
   function applyPayload(obj) {
+    lastDataTime = Date.now();
+    setConnStatus(true);
+    dismissOfflineOverlay();
     updateMetrics(obj);
     updateResources(obj);
     updateAlarms(obj);
@@ -656,8 +736,8 @@
         plugins: { legend: { labels: { color: '#94A3B8', font: { size: 10 }, boxWidth: 12, padding: 8 } } },
         scales: {
           x: { ticks: { color: '#94A3B8', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.03)' } },
-          y: { position: 'left', ticks: { color: '#F59E0B', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.05)' }, title: { display: true, text: powerUnit, color: '#94A3B8' } },
-          y1: { position: 'right', ticks: { color: '#3B82F6', font: { size: 9 } }, grid: { display: false }, title: { display: true, text: waterUnit, color: '#94A3B8' } },
+          y: { position: 'left', min: 0, ticks: { color: '#F59E0B', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.05)' }, title: { display: true, text: powerUnit, color: '#94A3B8' } },
+          y1: { position: 'right', min: 0, ticks: { color: '#3B82F6', font: { size: 9 } }, grid: { display: false }, title: { display: true, text: waterUnit, color: '#94A3B8' } },
         }
       }
     });
@@ -777,7 +857,25 @@
         if (forecastData && forecastData.length) { renderTempLine(forecastData); renderForecastCols(forecastData); syncForecastActiveCol(); }
       }, 200);
     });
+    // MQTT 连接心跳检测
     setInterval(function () { if (mqttClient && !mqttClient.connected) setConnStatus(false); }, 30000);
+    // 数据超时检测：10 秒没收到数据视为离线
+    setInterval(function () {
+      var stale = lastDataTime === 0 || (Date.now() - lastDataTime) > 10000;
+      if (stale) {
+        setConnStatus(false);
+        showOfflineOverlay(lastDataTime === 0);
+        var icon = document.getElementById('statusIcon');
+        var text = document.getElementById('statusText');
+        var status = document.getElementById('sysStatus');
+        if (icon && text && status) {
+          icon.textContent = '✗';
+          icon.style.color = '#ef4444';
+          text.textContent = lastDataTime === 0 ? '等待设备连接...' : '数据中断 — 设备可能离线';
+          status.style.borderColor = 'rgba(239,68,68,0.5)';
+        }
+      }
+    }, 10000);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
