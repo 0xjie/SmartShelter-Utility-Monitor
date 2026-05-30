@@ -278,9 +278,10 @@ void MainWindow::buildWaterPowerPage() {
             gaugeCol->addWidget(gaugeWidget, 0, Qt::AlignCenter);
 
             infoLabel = new QLabel(QStringLiteral("等待数据..."), pane);
+            infoLabel->setTextFormat(Qt::RichText);
             infoLabel->setWordWrap(true);
-            infoLabel->setMinimumWidth(240);
-            infoLabel->setStyleSheet("QLabel{color:#cbd5e1;font-size:12px;line-height:1.8;}");
+            infoLabel->setMinimumWidth(260);
+            infoLabel->setStyleSheet("QLabel{color:#cbd5e1;font-size:12px;}");
 
             paneLayout->addLayout(gaugeCol, 0);
             paneLayout->addWidget(infoLabel, 1);
@@ -848,6 +849,9 @@ void MainWindow::buildAlarmPage() {
     connect(levelFilter, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() {
         refreshAlarmInfoFromDatabase();
     });
+
+    // 首次进入页面时从数据库加载已有报警记录
+    refreshAlarmInfoFromDatabase();
 }
 
 #if 0
@@ -953,6 +957,11 @@ void MainWindow::buildDevicePage() {
             {QStringLiteral("fa"), QStringLiteral("水流告警"), QStringLiteral("L/min"), 10},
         };
 
+        // 从持久化存储加载（已被 STM32 遥测 th 同步更新过）
+        if (!m_thresholdValues.isEmpty()) {
+            // m_thresholdValues 已通过遥测 th + QSettings 初始化，直接用
+        }
+
         auto* thresholdCard = createPanelCard(ui->pageWaterPower);
         auto* thresholdLayout = new QVBoxLayout(thresholdCard);
         thresholdLayout->setContentsMargins(20, 16, 20, 16);
@@ -961,13 +970,6 @@ void MainWindow::buildDevicePage() {
         auto* thresholdTitle = new QLabel(QStringLiteral("修改阈值"), thresholdCard);
         thresholdTitle->setStyleSheet("QLabel{font-size:18px;font-weight:800;color:#7dd3fc;}");
         thresholdLayout->addWidget(thresholdTitle);
-
-        auto* thresholdHint = new QLabel(
-            QStringLiteral("这里配置的是告警阈值，下发后由 STM32 自动推导预警阈值。"),
-            thresholdCard);
-        thresholdHint->setWordWrap(true);
-        thresholdHint->setStyleSheet("QLabel{color:#94a3b8;font-size:12px;}");
-        thresholdLayout->addWidget(thresholdHint);
 
         auto* thresholdGrid = new QGridLayout();
         thresholdGrid->setContentsMargins(4, 6, 4, 6);
@@ -1003,7 +1005,7 @@ void MainWindow::buildDevicePage() {
             auto* nameLabel = new QLabel(def.label, rowWidget);
             nameLabel->setMinimumWidth(132);
             nameLabel->setStyleSheet("QLabel{color:#e8f0ff;font-size:13px;font-weight:600;}");
-            auto* spinBox = createSpinBox(def.defaultValue);
+            auto* spinBox = createSpinBox(m_thresholdValues.value(def.key, def.defaultValue));
             auto* unitLabel = new QLabel(def.unit, rowWidget);
             unitLabel->setMinimumWidth(44);
             unitLabel->setStyleSheet("QLabel{color:#7a8fb8;font-size:12px;}");
@@ -1067,6 +1069,11 @@ void MainWindow::buildDevicePage() {
 
             if (publishCommand(QStringLiteral("阈值一键下发"),
                                buildThresholdMqttJson(values))) {
+                // 保存到本地持久化
+                for (int i = 0; i < thresholdBoxes.size(); ++i) {
+                    m_thresholdValues[thresholdDefs[i].key] = thresholdBoxes[i]->value();
+                }
+                saveThresholdsToSettings();
                 customMessage(this,
                               QStringLiteral("已发送"),
                               QStringLiteral("阈值修改命令已发送到远端设备。"));
@@ -1085,13 +1092,6 @@ void MainWindow::buildDevicePage() {
         auto* controlTitle = new QLabel(QStringLiteral("远程控制"), controlCard);
         controlTitle->setStyleSheet("QLabel{font-size:18px;font-weight:800;color:#7dd3fc;}");
         controlLayout->addWidget(controlTitle);
-
-        auto* controlHint = new QLabel(
-            QStringLiteral("保留原来的四组控制开关：警报、风扇、窗户、警报灯。"),
-            controlCard);
-        controlHint->setWordWrap(true);
-        controlHint->setStyleSheet("QLabel{color:#94a3b8;font-size:12px;}");
-        controlLayout->addWidget(controlHint);
 
         const QString ctrlBtnNormal =
             "QPushButton{background:rgba(37,99,235,0.45);color:#e8f1ff;border:1px solid rgba(96,165,250,0.45);"
@@ -1190,57 +1190,41 @@ void MainWindow::buildDevicePage() {
     {
         auto* logCard = createPanelCard(ui->pageWaterPower);
         auto* logLayout = new QVBoxLayout(logCard);
-        logLayout->setContentsMargins(12, 12, 12, 12);
-        logLayout->setSpacing(8);
+        logLayout->setContentsMargins(16, 14, 16, 14);
+        logLayout->setSpacing(10);
 
         auto* logTitle = new QLabel(QStringLiteral("远程控制日志"), logCard);
         logTitle->setStyleSheet("QLabel{font-size:16px;font-weight:700;color:#7dd3fc;}");
         logLayout->addWidget(logTitle);
 
-        auto* logHeader = new QLabel(QStringLiteral("时间                 | 设备ID     | 控制命令           | 执行结果"),
-                                     logCard);
-        logHeader->setStyleSheet(
-            "QLabel{background:rgba(15,95,168,0.45);border:1px solid rgba(96,165,250,0.30);"
-            "border-radius:8px;color:#bfdbfe;font-size:12px;font-weight:600;padding:8px 10px;}");
-        logLayout->addWidget(logHeader);
+        m_remoteLogTable = new QTableWidget(0, 3, logCard);
+        m_remoteLogTable->setHorizontalHeaderLabels({
+            QStringLiteral("时间"), QStringLiteral("控制命令"), QStringLiteral("执行结果")});
+        m_remoteLogTable->setMinimumHeight(260);
+        m_remoteLogTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        m_remoteLogTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        m_remoteLogTable->setSelectionMode(QAbstractItemView::SingleSelection);
+        m_remoteLogTable->verticalHeader()->setVisible(false);
+        m_remoteLogTable->setShowGrid(false);
+        m_remoteLogTable->setAlternatingRowColors(true);
 
-        m_remoteLogMarqueeView = new QPlainTextEdit(logCard);
-        m_remoteLogMarqueeView->setReadOnly(true);
-        m_remoteLogMarqueeView->setMinimumHeight(220);
-        m_remoteLogMarqueeView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        m_remoteLogMarqueeView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        m_remoteLogMarqueeView->setLineWrapMode(QPlainTextEdit::NoWrap);
-        m_remoteLogMarqueeView->setMouseTracking(true);
-        m_remoteLogMarqueeView->setStyleSheet(
-            "QPlainTextEdit{background:rgba(7,26,54,0.86);border:1px solid rgba(96,165,250,0.30);"
-            "border-radius:10px;color:#dbeafe;font-size:13px;line-height:1.45;padding:8px 10px;}");
+        // 列宽：时间固定、命令自适应、结果固定
+        m_remoteLogTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+        m_remoteLogTable->setColumnWidth(0, 170);   // 时间
+        m_remoteLogTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);  // 控制命令
+        m_remoteLogTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+        m_remoteLogTable->setColumnWidth(2, 220);   // 执行结果
 
-        QFont monoFont;
-        monoFont.setStyleHint(QFont::TypeWriter, QFont::PreferQuality);
-        monoFont.setFixedPitch(true);
-        monoFont.setPointSize(10);
-        m_remoteLogMarqueeView->setFont(monoFont);
+        m_remoteLogTable->setStyleSheet(
+            "QTableWidget{background:rgba(7,26,54,0.86);border:1px solid rgba(96,165,250,0.30);"
+            "border-radius:10px;color:#dbeafe;font-size:13px;}"
+            "QTableWidget::item{padding:6px 8px;}"
+            "QHeaderView::section{"
+            "background:rgba(15,95,168,0.55);color:#bfdbfe;font-size:12px;font-weight:700;"
+            "padding:8px 10px;border:none;border-right:1px solid rgba(96,165,250,0.15);}"
+            "QTableWidget::item:alternate{background:rgba(15,95,168,0.08);}");
 
-        auto* logTimer = new QTimer(m_remoteLogMarqueeView);
-        logTimer->setObjectName(QStringLiteral("logScrollTimer"));
-        connect(logTimer, &QTimer::timeout, this, [this]() {
-            if (m_remoteLogMarqueeView == nullptr || !m_remoteLogMarqueeView->isVisible()) {
-                return;
-            }
-            QScrollBar* bar = m_remoteLogMarqueeView->verticalScrollBar();
-            if (bar == nullptr || bar->maximum() <= 0) {
-                return;
-            }
-            int value = bar->value() + 1;
-            if (value >= bar->maximum()) {
-                value = 0;
-            }
-            bar->setValue(value);
-        });
-        logTimer->start(150);
-        m_remoteLogMarqueeView->installEventFilter(this);
-
-        logLayout->addWidget(m_remoteLogMarqueeView, 1);
+        logLayout->addWidget(m_remoteLogTable, 1);
         rootLayout->addWidget(logCard, 1);
     }
 

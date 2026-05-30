@@ -69,6 +69,7 @@
 #include <QtCharts/QDateTimeAxis>
 #include <QtCharts/QValueAxis>
 
+#include <QSettings>
 #include <QStandardPaths>
 #include <cmath>
 #include <utility>
@@ -152,6 +153,7 @@ MainWindow::MainWindow(const QString& userName,
             qDebug() << "[DB] open failed:" << dbErr;
         } else {
             qDebug() << "[DB] path =" << m_db->databasePath();
+            loadThresholdsFromSettings();
             exportDashboardHistoryData();
             refreshWaterPowerUsageSummary();
             loadRemoteExecLogTable();
@@ -166,17 +168,6 @@ MainWindow::~MainWindow() {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
-    // 日志滚动区：悬停减速，移出恢复
-    if (watched == m_remoteLogMarqueeView) {
-        if (auto* t = m_remoteLogMarqueeView->findChild<QTimer*>(QStringLiteral("logScrollTimer"))) {
-            if (event->type() == QEvent::Enter)
-                t->setInterval(300);
-            else if (event->type() == QEvent::Leave)
-                t->setInterval(150);
-        }
-        return QMainWindow::eventFilter(watched, event);
-    }
-
     // 历史数据图表：悬停加粗曲线
     if (m_historyChartViews.contains(static_cast<QChartView*>(watched))) {
         if (event->type() == QEvent::Enter || event->type() == QEvent::Leave) {
@@ -597,6 +588,23 @@ void MainWindow::initMqtt() {
                     if (actFlags & 0x08) actnArr.append(QStringLiteral("风扇已关闭"));
                     if (actFlags & 0x10) actnArr.append(QStringLiteral("窗户已打开"));
                     if (actFlags & 0x20) actnArr.append(QStringLiteral("窗户已关闭"));
+
+                    // 同步 STM32 当前阈值到本地
+                    const QJsonObject thObj = obj.value("th").toObject();
+                    if (!thObj.isEmpty()) {
+                        const QStringList thKeys = {"ta","tb","ha","hb","pa","aa","ca","fa"};
+                        bool changed = false;
+                        for (const QString& k : thKeys) {
+                            if (thObj.contains(k)) {
+                                int v = thObj.value(k).toInt(-1);
+                                if (v >= 0 && m_thresholdValues.value(k, -1) != v) {
+                                    m_thresholdValues[k] = v;
+                                    changed = true;
+                                }
+                            }
+                        }
+                        if (changed) saveThresholdsToSettings();
+                    }
                 }
                 // 旧协议：{"t":..,"h":..,"p":..,"a":..,"f":..,"i":..}
                 else if (obj.contains("t") && obj.contains("h")) {
@@ -672,16 +680,16 @@ void MainWindow::initMqtt() {
                         m_flowSeries->removePoints(0, m_flowSeries->count() - maxPoints);
                     }
 
-                    // 动态调整Y轴范围
+                    // 动态调整Y轴范围（10%余量）
                     double curMax = 0, flowMax = 0;
                     for (const auto& pt : m_currentSeries->points())
                         curMax = qMax(curMax, pt.y());
                     for (const auto& pt : m_flowSeries->points())
                         flowMax = qMax(flowMax, pt.y());
-                    if (curMax < 100) curMax = 100;
-                    if (flowMax < 1) flowMax = 1;
-                    m_axisY_Current->setRange(0, curMax * 1.3);
-                    m_axisY_Flow->setRange(0, flowMax * 1.3);
+                    if (curMax < 1.0) curMax = 1.0;   // 最小1A，避免零范围
+                    if (flowMax < 1.0) flowMax = 1.0;
+                    m_axisY_Current->setRange(0, curMax * 1.1);
+                    m_axisY_Flow->setRange(0, flowMax * 1.1);
 
                     if (m_currentSeries->count() >= 2) {
                         auto pts = m_currentSeries->points();
@@ -934,7 +942,7 @@ void MainWindow::updateDataWithLevels(double temp, double hum, double current,
 
     m_cardTempValue->setText(QString("%1 ℃").arg(QString::number(temp, 'f', 1)));
     m_cardHumiValue->setText(QString("%1 %").arg(QString::number(hum, 'f', 1)));
-    m_cardCurrentValue->setText(QString("%1 A").arg(QString::number(current / 1000.0, 'f', 1)));
+    m_cardCurrentValue->setText(QString("%1 A").arg(QString::number(current, 'f', 1)));
     m_cardFlowValue->setText(QString("%1 L/min").arg(QString::number(flow, 'f', 2)));
 
     // 从 STM32 lv.d 数组获取各传感器级别（不再本地计算）
@@ -1005,7 +1013,7 @@ void MainWindow::updateDataWithLevels(double temp, double hum, double current,
     for (int code : newCodes) {
         int lv = (code % 10 == 2 || code >= 200) ? 2 : 1;
         QString level = (lv >= 2) ? QStringLiteral("严重") : QStringLiteral("预警");
-        QString msg = almMsg.value(code, QString("Code %1").arg(code));
+        QString msg = almMsg.value(code, QString());
         addAlarmRecord(timeStr, msg, level, code);
     }
 
@@ -1024,20 +1032,21 @@ void MainWindow::updateDataWithLevels(double temp, double hum, double current,
     if (anyGone) refreshAlarmInfoFromDatabase();
     m_prevAlmCodes = curAlmCodes;
 
-    // 告警弹窗（仅当有新报警时）
-    if (!newCodes.isEmpty() && (!m_lastLocalAlarmAt.isValid() || m_lastLocalAlarmAt.secsTo(now) >= 30)) {
-        QStringList alarmMessages;
+    // 告警/预警弹窗（仅当有新报警时，预警和告警分开弹）
+    if (!newCodes.isEmpty() && (!m_lastLocalAlarmAt.isValid() || m_lastLocalAlarmAt.secsTo(now) >= 10)) {
+        QStringList warnMsgs, alarmMsgs;
         for (int code : newCodes) {
-            QString msg = almMsg.value(code, QString("Code %1").arg(code));
-            QString line = QString("%1 (码:%2)").arg(msg).arg(code);
-            alarmMessages << line;
+            QString msg = almMsg.value(code, QString());
+            if (msg.isEmpty()) continue;
+            bool isAlarm = (code % 10 == 2 || code >= 200);
+            if (isAlarm) alarmMsgs << msg;
+            else         warnMsgs  << msg;
         }
-        QStringList actMsgs;
-        for (const QJsonValue& v : actnArr) actMsgs << v.toString();
-        if (!actMsgs.isEmpty())
-            alarmMessages << QStringLiteral("\n已采取措施：") + actMsgs.join(" / ");
         m_lastLocalAlarmAt = now;
-        showRealtimeAlarmDialog(this, alarmMessages.join("\n"));
+        if (!alarmMsgs.isEmpty())
+            showRealtimeAlarmDialog(this, alarmMsgs.join("\n"));
+        if (!warnMsgs.isEmpty())
+            showRealtimeWarnDialog(this, warnMsgs.join("\n"));
     }
 
     if (m_db != nullptr) {
@@ -1066,8 +1075,8 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
                                     int batRemainMin, int wtrRemainMin) {
     m_batteryPct = qBound(0.0, batteryPct, 100.0);
     m_waterPct   = qBound(0.0, waterPct,   100.0);
-    m_lastUsedPowerMAh = qMax(0, usedPowerMAh);
-    m_lastUsedWaterCL = qMax(0, usedWaterCL);
+    m_lastUsedPowerMAh = qMin(qMax(0, usedPowerMAh), batCapMAh);
+    m_lastUsedWaterCL = qMin(qMax(0, usedWaterCL), tankCapCL);
 
     // 实时负载大字 + 状态（使用STM32 powerStatus）
     if (m_wpLoadValueLabel != nullptr) {
@@ -1089,11 +1098,11 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
         m_wpLoadStatusLabel->setText(st);
     }
 
-    // 今日已用标签（直接显示STM32上传值）
+    // 今日已用标签（截断不超过总容量）
     if (m_wpTodayPowerLabel != nullptr)
-        m_wpTodayPowerLabel->setText(QStringLiteral("用电: %1 Ah").arg(QString::number(usedPowerMAh / 1000.0, 'f', 1)));
+        m_wpTodayPowerLabel->setText(QStringLiteral("用电: %1 Ah").arg(QString::number(qMin(usedPowerMAh, batCapMAh) / 1000.0, 'f', 1)));
     if (m_wpTodayWaterLabel != nullptr)
-        m_wpTodayWaterLabel->setText(QStringLiteral("用水: %1 L").arg(QString::number(usedWaterCL / 100.0, 'f', 1)));
+        m_wpTodayWaterLabel->setText(QStringLiteral("用水: %1 L").arg(QString::number(qMin(usedWaterCL, tankCapCL) / 100.0, 'f', 1)));
 
     // ===== 电量：更新电池图标 + 信息（全部值直接来自STM32） =====
     {
@@ -1103,23 +1112,50 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
             g->setPct(m_batteryPct);
 
         if (m_batteryInfoLabel != nullptr) {
-            QString info = QStringLiteral(
-                "剩余: %1 Ah\n"
-                "已用: %2 Ah\n"
-                "今日用电: %4 Ah\n"
-                "容量: %3 Ah")
-                .arg(QString::number(remainMAh / 1000.0, 'f', 1),
-                     QString::number(usedPowerMAh / 1000.0, 'f', 1),
-                     QString::number(batCapMAh / 1000.0, 'f', 1),
-                     QString::number(m_lastUsedPowerMAh / 1000.0, 'f', 1));
-            if (batRemainMin > 0) {
+            const int usedCapped = qMin(usedPowerMAh, batCapMAh);
+            const double remainAh = remainMAh / 1000.0;
+            const double usedAh = usedCapped / 1000.0;
+            const double capAh = batCapMAh / 1000.0;
+            const double todayAh = m_lastUsedPowerMAh / 1000.0;
+
+            // 级别色（与 Web 一致：>20%绿，10~20%橙，≤10%红）
+            int resLv = (m_batteryPct <= 10) ? 2 : (m_batteryPct <= 20) ? 1 : 0;
+            QString predColor = (resLv == 2) ? QStringLiteral("#EF4444") :
+                                (resLv == 1) ? QStringLiteral("#F59E0B") :
+                                               QStringLiteral("#10B981");
+
+            QString info;
+            // 第一行：大号百分比 + 绝对值
+            info += QStringLiteral(
+                "<span style='font-size:22px;font-weight:800;color:#f8fbff;'>%1% (%2 Ah)</span><br>")
+                .arg(QString::number(m_batteryPct), QString::number(remainAh, 'f', 1));
+
+            // 第二行：预估时间（颜色跟随级别）
+            if (m_batteryPct <= 0) {
+                info += QStringLiteral(
+                    "<span style='font-size:13px;font-weight:600;color:%1;'>当前电量已耗尽</span><br>")
+                    .arg(predColor);
+            } else if (batRemainMin > 0) {
+                QString predText;
                 if (batRemainMin >= 1440)
-                    info += QStringLiteral("\n预估: 约 %1 天").arg(QString::number(batRemainMin / 1440.0, 'f', 1));
+                    predText = QStringLiteral("预计剩余可用时间：约 %1 天").arg(QString::number(batRemainMin / 1440.0, 'f', 1));
                 else if (batRemainMin >= 60)
-                    info += QStringLiteral("\n预估: 约 %1 小时").arg(QString::number(batRemainMin / 60));
+                    predText = QStringLiteral("预计剩余可用时间：约 %1 小时").arg(QString::number(batRemainMin / 60));
                 else
-                    info += QStringLiteral("\n预估: 约 %1 分钟").arg(QString::number(batRemainMin));
+                    predText = QStringLiteral("预计剩余可用时间：约 %1 分钟").arg(QString::number(batRemainMin));
+                info += QStringLiteral(
+                    "<span style='font-size:13px;font-weight:600;color:%1;'>%2</span><br>")
+                    .arg(predColor, predText);
+            } else {
+                info += QStringLiteral(
+                    "<span style='font-size:13px;font-weight:600;color:#94a3b8;'>当前无负载</span><br>");
             }
+
+            // 第三行：小字数据
+            info += QStringLiteral(
+                "<span style='font-size:12px;color:#94a3b8;'>今日已用：%1 Ah  ·  容量：%2 Ah</span>")
+                .arg(QString::number(todayAh, 'f', 1), QString::number(capAh, 'f', 1));
+
             m_batteryInfoLabel->setText(info);
         }
     }
@@ -1127,31 +1163,55 @@ void MainWindow::updateResourcePct(double batteryPct, double waterPct,
     // ===== 水量：更新水箱图标 + 信息 =====
     {
         const double remainL = wtrRemainCL / 100.0;  // cL to L (STM32)
-        const double usedL   = usedWaterCL / 100.0;
+        const double usedCap = qMin(usedWaterCL, tankCapCL) / 100.0;
 
         if (auto* g = static_cast<TankGauge*>(m_tankGauge))
             g->setPct(m_waterPct);
 
         if (m_tankInfoLabel != nullptr) {
-            QString info = QStringLiteral(
-                "剩余: %1 L\n"
-                "已用: %2 L\n"
-                "今日用水: %4 L\n"
-                "容量: %3 L")
-                .arg(QString::number(remainL, 'f', 1),
-                     QString::number(usedL, 'f', 1),
-                     QString::number(tankCapCL / 100.0, 'f', 1),
-                     QString::number(m_lastUsedWaterCL / 100.0, 'f', 1));
-            if (wtrRemainMin > 0) {
+            const double remainL = wtrRemainCL / 100.0;
+            const double usedL = qMin(usedWaterCL, tankCapCL) / 100.0;
+            const double capL = tankCapCL / 100.0;
+            const double todayL = m_lastUsedWaterCL / 100.0;
+
+            // 级别色（与 Web 一致：>20%绿，10~20%橙，≤10%红）
+            int resLv = (m_waterPct <= 10) ? 2 : (m_waterPct <= 20) ? 1 : 0;
+            QString predColor = (resLv == 2) ? QStringLiteral("#EF4444") :
+                                (resLv == 1) ? QStringLiteral("#F59E0B") :
+                                               QStringLiteral("#10B981");
+
+            QString info;
+            // 第一行：大号百分比 + 绝对值
+            info += QStringLiteral(
+                "<span style='font-size:22px;font-weight:800;color:#f8fbff;'>%1% (%2 L)</span><br>")
+                .arg(QString::number(m_waterPct), QString::number(remainL, 'f', 1));
+
+            // 第二行：预估时间（颜色跟随级别）
+            if (m_waterPct <= 0) {
+                info += QStringLiteral(
+                    "<span style='font-size:13px;font-weight:600;color:%1;'>当前水量已耗尽</span><br>")
+                    .arg(predColor);
+            } else if (wtrRemainMin > 0) {
+                QString predText;
                 if (wtrRemainMin >= 1440)
-                    info += QStringLiteral("\n预估: 约 %1 天").arg(QString::number(wtrRemainMin / 1440.0, 'f', 1));
+                    predText = QStringLiteral("预计剩余可用时间：约 %1 天").arg(QString::number(wtrRemainMin / 1440.0, 'f', 1));
                 else if (wtrRemainMin >= 60)
-                    info += QStringLiteral("\n预估: 约 %1 小时").arg(QString::number(wtrRemainMin / 60));
+                    predText = QStringLiteral("预计剩余可用时间：约 %1 小时").arg(QString::number(wtrRemainMin / 60));
                 else
-                    info += QStringLiteral("\n预估: 约 %1 分钟").arg(QString::number(wtrRemainMin));
+                    predText = QStringLiteral("预计剩余可用时间：约 %1 分钟").arg(QString::number(wtrRemainMin));
+                info += QStringLiteral(
+                    "<span style='font-size:13px;font-weight:600;color:%1;'>%2</span><br>")
+                    .arg(predColor, predText);
             } else {
-                info += QStringLiteral("\n当前无用水");
+                info += QStringLiteral(
+                    "<span style='font-size:13px;font-weight:600;color:#94a3b8;'>当前无用水</span><br>");
             }
+
+            // 第三行：小字数据
+            info += QStringLiteral(
+                "<span style='font-size:12px;color:#94a3b8;'>今日已用：%1 L  ·  容量：%2 L</span>")
+                .arg(QString::number(todayL, 'f', 1), QString::number(capL, 'f', 1));
+
             m_tankInfoLabel->setText(info);
         }
     }
@@ -1336,9 +1396,9 @@ void MainWindow::refreshWaterPowerAnalysisPage() {
         const QDate day = trendStart.addDays(i);
         const QString key = day.toString(Qt::ISODate);
         const auto row = trendMap.value(key, DatabaseManager::DailyResourceUsageEntry{});
-        const double power = row.powerMAh;
+        const double power = row.powerMAh / 1000.0;   // mAh → Ah（数据库存储单位为mAh）
         const double water = row.waterCL / 100.0;
-        *m_wpTrendPowerSet << qRound(power * 10.0) / 10.0;
+        *m_wpTrendPowerSet << qRound(power * 100.0) / 100.0;
         *m_wpTrendWaterSet << qRound(water * 10.0) / 10.0;
         if (sameMonth) {
             trendLabels << day.toString(QStringLiteral("d"));
@@ -1363,7 +1423,7 @@ void MainWindow::refreshWaterPowerAnalysisPage() {
     if (m_wpTrendAxisX_Power) { m_wpTrendAxisX_Power->clear(); m_wpTrendAxisX_Power->setCategories(trendLabels); }
     if (m_wpTrendAxisX_Water) { m_wpTrendAxisX_Water->clear(); m_wpTrendAxisX_Water->setCategories(trendLabels); }
     if (m_wpTrendAxisY_Power) {
-        m_wpTrendAxisY_Power->setRange(0.0, qMax(10.0, maxTrendPower * 1.25));
+        m_wpTrendAxisY_Power->setRange(0.0, qMax(2.0, maxTrendPower * 1.25));
     }
     if (m_wpTrendAxisY_Water) {
         m_wpTrendAxisY_Water->setRange(0.0, qMax(1.0, maxTrendWater * 1.25));
@@ -1376,10 +1436,10 @@ void MainWindow::refreshWaterPowerAnalysisPage() {
                 "总用水：%7 L，日均：%8 L，峰值日：%9（%10 L）")
                 .arg(trendStart.toString(QStringLiteral("yyyy-MM-dd")))
                 .arg(trendEnd.toString(QStringLiteral("yyyy-MM-dd")))
-                .arg(QString::number(totalTrendPower / 1000.0, 'f', 1))
-                .arg(QString::number(trendDays > 0 ? totalTrendPower / trendDays / 1000.0 : 0.0, 'f', 2))
+                .arg(QString::number(totalTrendPower, 'f', 1))
+                .arg(QString::number(trendDays > 0 ? totalTrendPower / trendDays : 0.0, 'f', 2))
                 .arg(peakPowerDay.isEmpty() ? QStringLiteral("--") : peakPowerDay)
-                .arg(QString::number(maxTrendPower / 1000.0, 'f', 1))
+                .arg(QString::number(maxTrendPower, 'f', 1))
                 .arg(QString::number(totalTrendWater, 'f', 1))
                 .arg(QString::number(trendDays > 0 ? totalTrendWater / trendDays : 0.0, 'f', 1))
                 .arg(peakWaterDay.isEmpty() ? QStringLiteral("--") : peakWaterDay)
@@ -1499,10 +1559,10 @@ void MainWindow::onUpdateDashboardData() {
         curMax = qMax(curMax, pt.y());
     for (const auto& pt : m_flowSeries->points())
         flowMax = qMax(flowMax, pt.y());
-    if (curMax < 100) curMax = 100;
-    if (flowMax < 1) flowMax = 1;
-    m_axisY_Current->setRange(0, curMax * 1.3);
-    m_axisY_Flow->setRange(0, flowMax * 1.3);
+    if (curMax < 1.0) curMax = 1.0;   // 最小1A，避免零范围
+    if (flowMax < 1.0) flowMax = 1.0;
+    m_axisY_Current->setRange(0, curMax * 1.1);
+    m_axisY_Flow->setRange(0, flowMax * 1.1);
 
     if (m_currentSeries->count() >= 2) {
         auto pts = m_currentSeries->points();
@@ -2607,10 +2667,7 @@ void MainWindow::addAlarmRecord(const QString& timeText,
                                 const QString& contentText,
                                 const QString& level,
                                 int alarmCode) {
-    if (m_alarmInfoTable == nullptr) {
-        return;
-    }
-
+    // 数据库写入不受表格状态影响
     if (m_db != nullptr) {
         QString insErr;
         if (!m_db->insertAlarmInfo(timeText, contentText, level, alarmCode, &insErr)) {
@@ -2618,8 +2675,10 @@ void MainWindow::addAlarmRecord(const QString& timeText,
         }
     }
 
-    // 直接刷新避免手动拼接表格
-    refreshAlarmInfoFromDatabase();
+    // 表格存在时才刷新UI
+    if (m_alarmInfoTable != nullptr) {
+        refreshAlarmInfoFromDatabase();
+    }
 }
 
 void MainWindow::refreshAlarmInfoFromDatabase() {
@@ -2771,27 +2830,31 @@ void MainWindow::appendRemoteControlLog(const QString& command,
 }
 
 void MainWindow::loadRemoteExecLogTable() {
-    if (m_remoteLogMarqueeView == nullptr || m_db == nullptr) {
+    if (m_remoteLogTable == nullptr || m_db == nullptr) {
         return;
     }
     QString err;
-    const QList<DatabaseManager::RemoteExecLogEntry> rows = m_db->queryRemoteExecLogs(20, &err);
+    const QList<DatabaseManager::RemoteExecLogEntry> rows = m_db->queryRemoteExecLogs(50, &err);
     if (!err.isEmpty()) {
         qDebug() << "[DB] query remote logs failed:" << err;
     }
-    QStringList lines;
-    if (!rows.isEmpty()) {
-        for (const auto& row : rows) {
-            lines.append(formatRemoteLogTableLine(row.executeTime,
-                                                  row.commandText,
-                                                  row.resultText));
-        }
-    } else {
-        lines.append(QStringLiteral("暂无执行日志"));
+
+    m_remoteLogTable->setRowCount(0);
+    for (int i = 0; i < rows.size(); ++i) {
+        const auto& row = rows[i];
+        m_remoteLogTable->insertRow(i);
+        m_remoteLogTable->setItem(i, 0, new QTableWidgetItem(row.executeTime));
+        m_remoteLogTable->setItem(i, 1, new QTableWidgetItem(row.commandText));
+        m_remoteLogTable->setItem(i, 2,
+            new QTableWidgetItem(stripRemoteLogCodeSuffix(row.resultText)));
     }
-    m_remoteLogMarqueeView->setPlainText(lines.join(QLatin1Char('\n')));
-    if (QScrollBar* bar = m_remoteLogMarqueeView->verticalScrollBar()) {
-        bar->setValue(0);
+
+    if (rows.isEmpty()) {
+        m_remoteLogTable->insertRow(0);
+        auto* emptyItem = new QTableWidgetItem(QStringLiteral("暂无执行日志"));
+        emptyItem->setTextAlignment(Qt::AlignCenter);
+        m_remoteLogTable->setItem(0, 0, emptyItem);
+        m_remoteLogTable->setSpan(0, 0, 1, 3);
     }
 }
 
@@ -3005,16 +3068,13 @@ void MainWindow::onEditAccountInfoClicked() {
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("修改用户信息"));
     dialog.setModal(true);
-    dialog.resize(460, 320);
+    dialog.resize(440, 340);
 
     dialog.setStyleSheet(QStringLiteral(
         "QDialog { background-color: #1e293b; }"
         "QLabel { color: #e2e8f0; font-size: 13px; }"
         "QLabel#editAccountTitle {"
         "  color: #f8fafc; font-size: 18px; font-weight: 800; padding-bottom: 4px;"
-        "}"
-        "QLabel#editAccountTip {"
-        "  color: #94a3b8; font-size: 12px; padding-bottom: 12px;"
         "}"
         "QLineEdit {"
         "  background-color: #334155;"
@@ -3054,37 +3114,33 @@ void MainWindow::onEditAccountInfoClicked() {
 
     auto* layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(24, 20, 24, 20);
-    layout->setSpacing(12);
+    layout->setSpacing(14);
 
     auto* titleLabel = new QLabel(QStringLiteral("修改用户信息"), &dialog);
     titleLabel->setObjectName(QStringLiteral("editAccountTitle"));
     layout->addWidget(titleLabel);
 
-    auto* tipLabel =
-        new QLabel(QStringLiteral("留空表示保留原值。"), &dialog);
-    tipLabel->setObjectName(QStringLiteral("editAccountTip"));
-    tipLabel->setWordWrap(true);
-    layout->addWidget(tipLabel);
-
     auto* form = new QFormLayout();
-    form->setSpacing(12);
+    form->setSpacing(14);
     form->setContentsMargins(0, 8, 0, 8);
 
-    auto* userLabel = new QLabel(QStringLiteral("当前账号："), &dialog);
-    auto* userVal = new QLabel(m_userName, &dialog);
-    userVal->setStyleSheet("font-weight:700;");
-    form->addRow(userLabel, userVal);
-
     auto* editUser = new QLineEdit(&dialog);
-    editUser->setPlaceholderText(QStringLiteral("输入新账号"));
-    form->addRow(QStringLiteral("新账号："), editUser);
+    editUser->setText(m_userName);
+    editUser->setPlaceholderText(QStringLiteral("输入账号"));
+    form->addRow(QStringLiteral("账号："), editUser);
 
     auto* editPwd = new QLineEdit(&dialog);
     editPwd->setEchoMode(QLineEdit::Password);
-    editPwd->setPlaceholderText(QStringLiteral("输入新密码（至少6位）"));
-    form->addRow(QStringLiteral("新密码："), editPwd);
+    editPwd->setPlaceholderText(QStringLiteral("输入密码（至少6位）"));
+    form->addRow(QStringLiteral("密码："), editPwd);
+
+    auto* editPwdConfirm = new QLineEdit(&dialog);
+    editPwdConfirm->setEchoMode(QLineEdit::Password);
+    editPwdConfirm->setPlaceholderText(QStringLiteral("再次输入密码"));
+    form->addRow(QStringLiteral("确认密码："), editPwdConfirm);
 
     layout->addLayout(form);
+    layout->addStretch();
 
     auto* btnRow = new QHBoxLayout();
     btnRow->addStretch();
@@ -3109,14 +3165,23 @@ void MainWindow::onEditAccountInfoClicked() {
 
     QString newUsername = editUser->text().trimmed();
     if (newUsername.isEmpty()) {
-        newUsername = m_userName;
+        customMessage(this, QStringLiteral("输入无效"), QStringLiteral("账号不能为空。"), true);
+        return;
     }
     QString newPassword = editPwd->text();
-    if (newPassword.isEmpty()) {
+    QString confirmPassword = editPwdConfirm->text();
+
+    if (newPassword.isEmpty() && confirmPassword.isEmpty()) {
         newPassword = currentPassword;
-    } else if (newPassword.size() < 6) {
-        customMessage(this, QStringLiteral("输入无效"), QStringLiteral("密码长度至少为 6 位。"), true);
-        return;
+    } else {
+        if (newPassword.size() < 6) {
+            customMessage(this, QStringLiteral("输入无效"), QStringLiteral("密码长度至少为 6 位。"), true);
+            return;
+        }
+        if (newPassword != confirmPassword) {
+            customMessage(this, QStringLiteral("输入无效"), QStringLiteral("两次输入的密码不一致。"), true);
+            return;
+        }
     }
 
     QString updateErr;
@@ -3232,4 +3297,27 @@ bool MainWindow::updateCurrentUserBasicInfo(const QString& newUsername,
     db.close();
     QSqlDatabase::removeDatabase(connectionName);
     return true;
+}
+
+// ====== 阈值持久化（QSettings，跨重启保留） ======
+
+void MainWindow::saveThresholdsToSettings() {
+    QSettings settings(QStringLiteral("SmartHydroPower"), QStringLiteral("Thresholds"));
+    for (auto it = m_thresholdValues.constBegin(); it != m_thresholdValues.constEnd(); ++it) {
+        settings.setValue(it.key(), it.value());
+    }
+}
+
+void MainWindow::loadThresholdsFromSettings() {
+    static const QMap<QString, int> defaults = {
+        {"ta", 38}, {"tb", 10},
+        {"ha", 85}, {"hb", 20},
+        {"pa", 150}, {"aa", 200},
+        {"ca", 15}, {"fa", 10}
+    };
+
+    QSettings settings(QStringLiteral("SmartHydroPower"), QStringLiteral("Thresholds"));
+    for (auto it = defaults.constBegin(); it != defaults.constEnd(); ++it) {
+        m_thresholdValues[it.key()] = settings.value(it.key(), it.value()).toInt();
+    }
 }
