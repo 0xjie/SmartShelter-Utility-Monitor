@@ -1033,7 +1033,9 @@ void MainWindow::updateDataWithLevels(double temp, double hum, double current,
     m_prevAlmCodes = curAlmCodes;
 
     // 告警/预警弹窗（仅当有新报警时，预警和告警分开弹）
-    if (!newCodes.isEmpty() && (!m_lastLocalAlarmAt.isValid() || m_lastLocalAlarmAt.secsTo(now) >= 10)) {
+    // 弹窗已激活时绕过节流，确保ALARM能立即替换WARN
+    bool dialogActive = isAlertDialogActive();
+    if (!newCodes.isEmpty() && (dialogActive || !m_lastLocalAlarmAt.isValid() || m_lastLocalAlarmAt.secsTo(now) >= 10)) {
         QStringList warnMsgs, alarmMsgs;
         for (int code : newCodes) {
             QString msg = almMsg.value(code, QString());

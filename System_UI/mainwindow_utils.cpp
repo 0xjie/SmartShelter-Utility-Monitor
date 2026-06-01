@@ -423,18 +423,24 @@ QPixmap createAlarmIconPixmap(const QSize& size) {
 // 跟踪当前活跃的告警弹窗，新弹窗出现时自动关闭旧的（避免堆叠）
 static QPointer<QDialog> s_activeAlertDialog;
 
+bool isAlertDialogActive() {
+    return !s_activeAlertDialog.isNull();
+}
+
 static void showRealtimeAlertDialog(QWidget* parent, const QString& detailText,
                                     bool isAlarm, const QString& title) {
     // 关闭当前活跃弹窗（ALARM替换WARN，或同级别更新）
     if (s_activeAlertDialog) {
-        s_activeAlertDialog->done(QDialog::Rejected);
+        s_activeAlertDialog->close();
         s_activeAlertDialog = nullptr;
     }
 
-    QDialog dialog(parent);
-    dialog.setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
-    dialog.setModal(true);
-    dialog.setObjectName(isAlarm ? "realtimeAlarmDialog" : "realtimeWarnDialog");
+    // 堆分配 + open() 非阻塞模态（不阻塞MQTT事件循环）
+    auto* dialog = new QDialog(parent);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+    dialog->setModal(true);
+    dialog->setObjectName(isAlarm ? "realtimeAlarmDialog" : "realtimeWarnDialog");
 
     const QString borderColor  = isAlarm ? "#dc2626" : "#f59e0b";
     const QString bgColor      = isAlarm ? "#fff5f5" : "#fffbeb";
@@ -447,7 +453,7 @@ static void showRealtimeAlertDialog(QWidget* parent, const QString& detailText,
     const QString closeHover   = isAlarm ? "#7f1d1d" : "#78350f";
     const QString alarmLevel   = isAlarm ? "紧急" : "";
 
-    dialog.setStyleSheet(
+    dialog->setStyleSheet(
         QString("QDialog#%1{"
         "background:%2;"
         "border:3px solid %3;"
@@ -487,18 +493,18 @@ static void showRealtimeAlertDialog(QWidget* parent, const QString& detailText,
         "min-height:28px;"
         "}"
         "QPushButton#alertCloseButton:hover{color:%10;}")
-        .arg(dialog.objectName(), bgColor, borderColor,
+        .arg(dialog->objectName(), bgColor, borderColor,
              titleColor, detailColor,
              btnBg, btnHover, btnPress,
              closeColor, closeHover));
 
-    auto* rootLayout = new QVBoxLayout(&dialog);
+    auto* rootLayout = new QVBoxLayout(dialog);
     rootLayout->setContentsMargins(18, 14, 18, 18);
     rootLayout->setSpacing(10);
 
     auto* topRow = new QHBoxLayout();
     topRow->setContentsMargins(0, 0, 0, 0);
-    auto* levelBadge = new QLabel(alarmLevel, &dialog);
+    auto* levelBadge = new QLabel(alarmLevel, dialog);
     if (!alarmLevel.isEmpty()) {
         levelBadge->setStyleSheet(QString(
             "QLabel{background:%1;color:white;font-size:13px;font-weight:800;"
@@ -506,7 +512,7 @@ static void showRealtimeAlertDialog(QWidget* parent, const QString& detailText,
     }
     topRow->addWidget(levelBadge);
     topRow->addStretch();
-    auto* closeButton = new QPushButton(QString(QChar(0x00D7)), &dialog);
+    auto* closeButton = new QPushButton(QString(QChar(0x00D7)), dialog);
     closeButton->setObjectName("alertCloseButton");
     topRow->addWidget(closeButton, 0, Qt::AlignRight);
     rootLayout->addLayout(topRow);
@@ -514,16 +520,16 @@ static void showRealtimeAlertDialog(QWidget* parent, const QString& detailText,
     auto* contentRow = new QHBoxLayout();
     contentRow->setSpacing(16);
 
-    auto* iconLabel = new QLabel(&dialog);
+    auto* iconLabel = new QLabel(dialog);
     iconLabel->setPixmap(createAlarmIconPixmap(QSize(72, 72)));
     iconLabel->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
     contentRow->addWidget(iconLabel, 0, Qt::AlignTop);
 
     auto* textLayout = new QVBoxLayout();
     textLayout->setSpacing(10);
-    auto* titleLabel = new QLabel(title, &dialog);
+    auto* titleLabel = new QLabel(title, dialog);
     titleLabel->setObjectName("alertTitle");
-    auto* detailLabel = new QLabel(detailText, &dialog);
+    auto* detailLabel = new QLabel(detailText, dialog);
     detailLabel->setObjectName("alertDetail");
     detailLabel->setWordWrap(true);
     textLayout->addWidget(titleLabel);
@@ -535,18 +541,21 @@ static void showRealtimeAlertDialog(QWidget* parent, const QString& detailText,
 
     auto* buttonRow = new QHBoxLayout();
     buttonRow->addStretch();
-    auto* okButton = new QPushButton(isAlarm ? "知道了" : "我知道了", &dialog);
+    auto* okButton = new QPushButton(isAlarm ? "知道了" : "我知道了", dialog);
     okButton->setObjectName("alertOkButton");
     buttonRow->addWidget(okButton);
     rootLayout->addLayout(buttonRow);
 
-    QObject::connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::reject);
-    QObject::connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+    QObject::connect(closeButton, &QPushButton::clicked, dialog, &QDialog::reject);
+    QObject::connect(okButton, &QPushButton::clicked, dialog, &QDialog::accept);
+    // 弹窗关闭时自动清空跟踪指针
+    QObject::connect(dialog, &QDialog::finished, [](int) {
+        if (s_activeAlertDialog) s_activeAlertDialog = nullptr;
+    });
 
-    dialog.resize(520, 220);
-    s_activeAlertDialog = &dialog;
-    dialog.exec();
-    s_activeAlertDialog = nullptr;
+    dialog->resize(520, 220);
+    s_activeAlertDialog = dialog;
+    dialog->open();  // 非阻塞窗口模态：不阻塞MQTT事件循环
 }
 
 void showRealtimeAlarmDialog(QWidget* parent, const QString& detailText) {
