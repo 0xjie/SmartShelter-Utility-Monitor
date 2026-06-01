@@ -1043,10 +1043,12 @@ void MainWindow::updateDataWithLevels(double temp, double hum, double current,
             else         warnMsgs  << msg;
         }
         m_lastLocalAlarmAt = now;
-        if (!alarmMsgs.isEmpty())
+        // 告警优先：有告警时跳过预警弹窗，避免关完告警又弹预警
+        if (!alarmMsgs.isEmpty()) {
             showRealtimeAlarmDialog(this, alarmMsgs.join("\n"));
-        if (!warnMsgs.isEmpty())
+        } else if (!warnMsgs.isEmpty()) {
             showRealtimeWarnDialog(this, warnMsgs.join("\n"));
+        }
     }
 
     if (m_db != nullptr) {

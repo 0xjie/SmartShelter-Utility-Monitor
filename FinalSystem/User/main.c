@@ -83,7 +83,7 @@ static void reset_thresholds_to_default(void) {
 
 // 水电剩余量模拟
 static uint16_t BATTERY_CAPACITY_mAh = 10000;
-static uint16_t TANK_CAPACITY_L      = 100;
+static uint16_t TANK_CAPACITY_L      = 500;
 
 // 传感器缩放系数（DEMO：放大到真实比例；真实场景改为1）
 #define CUR_SCALE  10    // 电流×10: 400mA→4A
@@ -435,7 +435,13 @@ int main(void)
                     temp_warn_cnt = 0; temp_alarm_cnt = 0; temp_warn_rec = 0;
                     if (temp <= (TEMP_ALARM_H - TEMP_HYST_ALARM) && temp >= (TEMP_ALARM_L + TEMP_HYST_ALARM)) {
                         temp_alarm_rec++;
-                        if (temp_alarm_rec >= ALARM_EXIT_CNT) temp_level = LINK_WARN;
+                        if (temp_alarm_rec >= ALARM_EXIT_CNT) {
+                            // 值已回到正常范围 → 直接NORMAL，跳过WARN
+                            if (temp <= TEMP_WARN_H && temp >= TEMP_WARN_L)
+                                temp_level = LINK_NORMAL;
+                            else
+                                temp_level = LINK_WARN;
+                        }
                     } else temp_alarm_rec = 0;
                 } else if (temp_level == LINK_WARN) {
                     temp_warn_cnt = 0; temp_alarm_rec = 0;
@@ -452,8 +458,10 @@ int main(void)
                 } else {
                     temp_alarm_rec = 0; temp_warn_rec = 0;
                     if (temp >= TEMP_ALARM_H || temp <= TEMP_ALARM_L) {
-                        temp_alarm_cnt++; temp_warn_cnt = 0;
-                        if (temp_alarm_cnt >= ALARM_ENTRY_CNT) temp_level = LINK_ALARM;
+                        // 跳变到ALARM区间 → 强制先入WARN，保证NORMAL→WARN→ALARM路径
+                        temp_alarm_cnt = 0;
+                        temp_warn_cnt = WARN_ENTRY_CNT;
+                        temp_level = LINK_WARN;
                     } else {
                         temp_alarm_cnt = 0;
                         if (temp >= TEMP_WARN_H || temp <= TEMP_WARN_L) {
@@ -468,7 +476,13 @@ int main(void)
                     humi_warn_cnt = 0; humi_alarm_cnt = 0; humi_warn_rec = 0;
                     if (humi <= (HUMI_ALARM_H - HUMI_HYST_ALARM) && humi >= (HUMI_ALARM_L + HUMI_HYST_ALARM)) {
                         humi_alarm_rec++;
-                        if (humi_alarm_rec >= ALARM_EXIT_CNT) humi_level = LINK_WARN;
+                        if (humi_alarm_rec >= ALARM_EXIT_CNT) {
+                            // 值已回到正常范围 → 直接NORMAL，跳过WARN
+                            if (humi <= HUMI_WARN_H && humi >= HUMI_WARN_L)
+                                humi_level = LINK_NORMAL;
+                            else
+                                humi_level = LINK_WARN;
+                        }
                     } else humi_alarm_rec = 0;
                 } else if (humi_level == LINK_WARN) {
                     humi_warn_cnt = 0; humi_alarm_rec = 0;
@@ -485,8 +499,10 @@ int main(void)
                 } else {
                     humi_alarm_rec = 0; humi_warn_rec = 0;
                     if (humi >= HUMI_ALARM_H || humi <= HUMI_ALARM_L) {
-                        humi_alarm_cnt++; humi_warn_cnt = 0;
-                        if (humi_alarm_cnt >= ALARM_ENTRY_CNT) humi_level = LINK_ALARM;
+                        // 跳变到ALARM区间 → 强制先入WARN，保证NORMAL→WARN→ALARM路径
+                        humi_alarm_cnt = 0;
+                        humi_warn_cnt = WARN_ENTRY_CNT;
+                        humi_level = LINK_WARN;
                     } else {
                         humi_alarm_cnt = 0;
                         if (humi >= HUMI_WARN_H || humi <= HUMI_WARN_L) {
@@ -502,7 +518,13 @@ int main(void)
                 pm25_warn_cnt = 0; pm25_alarm_cnt = 0; pm25_warn_rec = 0;
                 if (pm25_ugm3 <= (PM25_ALARM - PM25_HYST_ALARM)) {
                     pm25_alarm_rec++;
-                    if (pm25_alarm_rec >= ALARM_EXIT_CNT) pm25_level = LINK_WARN;
+                    if (pm25_alarm_rec >= ALARM_EXIT_CNT) {
+                        // 值已回到正常范围 → 直接NORMAL，跳过WARN
+                        if (pm25_ugm3 <= PM25_WARN)
+                            pm25_level = LINK_NORMAL;
+                        else
+                            pm25_level = LINK_WARN;
+                    }
                 } else pm25_alarm_rec = 0;
             } else if (pm25_level == LINK_WARN) {
                 pm25_warn_cnt = 0; pm25_alarm_rec = 0;
@@ -519,8 +541,10 @@ int main(void)
             } else {
                 pm25_alarm_rec = 0; pm25_warn_rec = 0;
                 if (pm25_ugm3 >= PM25_ALARM) {
-                    pm25_alarm_cnt++; pm25_warn_cnt = 0;
-                    if (pm25_alarm_cnt >= ALARM_ENTRY_CNT) pm25_level = LINK_ALARM;
+                    // 跳变到ALARM区间 → 强制先入WARN，保证NORMAL→WARN→ALARM路径
+                    pm25_alarm_cnt = 0;
+                    pm25_warn_cnt = WARN_ENTRY_CNT;
+                    pm25_level = LINK_WARN;
                 } else {
                     pm25_alarm_cnt = 0;
                     if (pm25_ugm3 >= PM25_WARN) {
@@ -535,7 +559,13 @@ int main(void)
                 aq_warn_cnt = 0; aq_alarm_cnt = 0; aq_warn_rec = 0;
                 if (aq_ppm <= (AQ_ALARM - AQ_HYST_ALARM)) {
                     aq_alarm_rec++;
-                    if (aq_alarm_rec >= ALARM_EXIT_CNT) aq_level = LINK_WARN;
+                    if (aq_alarm_rec >= ALARM_EXIT_CNT) {
+                        // 值已回到正常范围 → 直接NORMAL，跳过WARN
+                        if (aq_ppm <= AQ_WARN)
+                            aq_level = LINK_NORMAL;
+                        else
+                            aq_level = LINK_WARN;
+                    }
                 } else aq_alarm_rec = 0;
             } else if (aq_level == LINK_WARN) {
                 aq_warn_cnt = 0; aq_alarm_rec = 0;
@@ -552,8 +582,10 @@ int main(void)
             } else {
                 aq_alarm_rec = 0; aq_warn_rec = 0;
                 if (aq_ppm >= AQ_ALARM) {
-                    aq_alarm_cnt++; aq_warn_cnt = 0;
-                    if (aq_alarm_cnt >= ALARM_ENTRY_CNT) aq_level = LINK_ALARM;
+                    // 跳变到ALARM区间 → 强制先入WARN，保证NORMAL→WARN→ALARM路径
+                    aq_alarm_cnt = 0;
+                    aq_warn_cnt = WARN_ENTRY_CNT;
+                    aq_level = LINK_WARN;
                 } else {
                     aq_alarm_cnt = 0;
                     if (aq_ppm >= AQ_WARN) {
@@ -568,7 +600,13 @@ int main(void)
                 cur_warn_cnt = 0; cur_alarm_cnt = 0; cur_warn_rec = 0;
                 if ((int32_t)rpt_ma <= (int32_t)(CUR_ALARM - CUR_HYST_ALARM) * 1000) {
                     cur_alarm_rec++;
-                    if (cur_alarm_rec >= ALARM_EXIT_CNT) cur_level = LINK_WARN;
+                    if (cur_alarm_rec >= ALARM_EXIT_CNT) {
+                        // 值已回到正常范围 → 直接NORMAL，跳过WARN
+                        if ((int32_t)rpt_ma <= (int32_t)CUR_WARN * 1000)
+                            cur_level = LINK_NORMAL;
+                        else
+                            cur_level = LINK_WARN;
+                    }
                 } else cur_alarm_rec = 0;
             } else if (cur_level == LINK_WARN) {
                 cur_warn_cnt = 0; cur_alarm_rec = 0;
@@ -585,8 +623,10 @@ int main(void)
             } else {
                 cur_alarm_rec = 0; cur_warn_rec = 0;
                 if ((int32_t)rpt_ma >= (int32_t)CUR_ALARM * 1000) {
-                    cur_alarm_cnt++; cur_warn_cnt = 0;
-                    if (cur_alarm_cnt >= ALARM_ENTRY_CNT) cur_level = LINK_ALARM;
+                    // 跳变到ALARM区间 → 强制先入WARN，保证NORMAL→WARN→ALARM路径
+                    cur_alarm_cnt = 0;
+                    cur_warn_cnt = WARN_ENTRY_CNT;
+                    cur_level = LINK_WARN;
                 } else {
                     cur_alarm_cnt = 0;
                     if ((int32_t)rpt_ma >= (int32_t)CUR_WARN * 1000) {
@@ -601,7 +641,13 @@ int main(void)
                 flw_warn_cnt = 0; flw_alarm_cnt = 0; flw_warn_rec = 0;
                 if (rpt_f <= (FLW_ALARM - FLW_HYST_ALARM)) {
                     flw_alarm_rec++;
-                    if (flw_alarm_rec >= ALARM_EXIT_CNT) flw_level = LINK_WARN;
+                    if (flw_alarm_rec >= ALARM_EXIT_CNT) {
+                        // 值已回到正常范围 → 直接NORMAL，跳过WARN
+                        if (rpt_f <= FLW_WARN)
+                            flw_level = LINK_NORMAL;
+                        else
+                            flw_level = LINK_WARN;
+                    }
                 } else flw_alarm_rec = 0;
             } else if (flw_level == LINK_WARN) {
                 flw_warn_cnt = 0; flw_alarm_rec = 0;
@@ -618,8 +664,10 @@ int main(void)
             } else {
                 flw_alarm_rec = 0; flw_warn_rec = 0;
                 if (rpt_f >= FLW_ALARM) {
-                    flw_alarm_cnt++; flw_warn_cnt = 0;
-                    if (flw_alarm_cnt >= ALARM_ENTRY_CNT) flw_level = LINK_ALARM;
+                    // 跳变到ALARM区间 → 强制先入WARN，保证NORMAL→WARN→ALARM路径
+                    flw_alarm_cnt = 0;
+                    flw_warn_cnt = WARN_ENTRY_CNT;
+                    flw_level = LINK_WARN;
                 } else {
                     flw_alarm_cnt = 0;
                     if (rpt_f >= FLW_WARN) {

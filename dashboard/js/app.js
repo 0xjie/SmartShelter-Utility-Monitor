@@ -140,8 +140,8 @@
       var rAq   = document.getElementById('mrangeAq');
       if (rTemp) rTemp.textContent = '告警 <' + (th.tb || '?') + ' 或 >' + (th.ta || '?') + '℃';
       if (rHum)  rHum.textContent  = '告警 <' + (th.hb || '?') + ' 或 >' + (th.ha || '?') + '%';
-      if (rPm)   rPm.textContent   = '预警≥' + Math.round((th.pa || 150) / 2) + ' 告警≥' + (th.pa || '?') + 'μg/m³';
-      if (rAq)   rAq.textContent   = '预警≥' + Math.round((th.aa || 200) / 2) + ' 告警≥' + (th.aa || '?') + 'ppm';
+      if (rPm)   rPm.textContent   = '告警≥' + (th.pa || '?') + 'μg/m³';
+      if (rAq)   rAq.textContent   = '告警≥' + (th.aa || '?') + 'ppm';
     }
 
     METRICS.forEach(function (m) {
@@ -424,6 +424,14 @@
 
     container.innerHTML = html;
     container.className = 'linkage-toast linkage-toast--' + (linkLv === 2 ? 'alarm' : 'warn') + ' linkage-toast--show';
+
+    // 级别变化时重触发入场动画：先收起再弹出
+    container.classList.remove('linkage-toast--show');
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        container.classList.add('linkage-toast--show');
+      });
+    });
 
     toastTimer = setTimeout(function () {
       container.classList.remove('linkage-toast--show');
