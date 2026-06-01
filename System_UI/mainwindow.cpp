@@ -1281,9 +1281,11 @@ void MainWindow::refreshWaterPowerAnalysisPage() {
 
     const QDateTime dayStart(selectedDay, QTime(0, 0, 0));
     const QDateTime dayEnd(selectedDay, QTime(23, 59, 59));
+    // 多查 1 小时到下一天，确保目标日最后一个数据点能拿到真实的 dtSec（跨天 gap 不被吞掉）
+    const QDateTime dayEndExtended = dayEnd.addSecs(3600);
 
     QString err;
-    const QList<SensorData> points = m_db->queryDataRange(dayStart, dayEnd, &err);
+    const QList<SensorData> points = m_db->queryDataRange(dayStart, dayEndExtended, &err);
     if (!err.isEmpty()) {
         qDebug() << "[DB] query water/power day points failed:" << err;
     }
@@ -1295,6 +1297,9 @@ void MainWindow::refreshWaterPowerAnalysisPage() {
 
     QMap<int, BucketUsage> bucketMap;
     for (int i = 0; i < points.size(); ++i) {
+        // 只累计属于目标日的点（但 dtSec 可用到跨天点之间的真实间隔）
+        if (points[i].ts.date() != selectedDay) continue;
+
         double dtSec = 1.0;
         if (i + 1 < points.size()) {
             dtSec = qBound(1.0, static_cast<double>(points[i].ts.secsTo(points[i + 1].ts)), 3600.0);
