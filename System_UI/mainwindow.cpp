@@ -1373,13 +1373,28 @@ void MainWindow::refreshWaterPowerAnalysisPage() {
 
     const QDate trendEnd = QDate::currentDate().addDays(-1);
     const QDate trendStart = trendEnd.addDays(-(trendDays - 1));
-    const QList<DatabaseManager::DailyResourceUsageEntry> trendRows =
-        m_db->queryDailyResourceUsage(trendStart, trendEnd, &err);
+
+    // 多日趋势直接从 raw data 积分计算（与单日分析同一算法、同一数据源），
+    // 不再依赖 daily_resource_usage 表（该表可能混入 STM32 计数器增量，导致与单日分析不一致）。
+    const QDateTime trendStartDt(trendStart, QTime(0, 0, 0));
+    const QDateTime trendEndDt(trendEnd, QTime(23, 59, 59));
+    const QList<SensorData> trendPoints = m_db->queryDataRange(trendStartDt, trendEndDt, &err);
     if (!err.isEmpty()) {
-        qDebug() << "[DB] query water/power trend rows failed:" << err;
+        qDebug() << "[DB] query water/power trend raw data failed:" << err;
     }
-    QMap<QString, DatabaseManager::DailyResourceUsageEntry> trendMap;
-    for (const auto& row : trendRows) trendMap.insert(row.day, row);
+
+    // 与单日分析完全相同的积分公式：currentA * dtSec/3600 → Ah，flowLMin * dtSec/60 → L
+    QMap<QString, double> trendPowerAh;
+    QMap<QString, double> trendWaterL;
+    for (int i = 0; i < trendPoints.size(); ++i) {
+        double dtSec = 1.0;
+        if (i + 1 < trendPoints.size()) {
+            dtSec = qBound(1.0, static_cast<double>(trendPoints[i].ts.secsTo(trendPoints[i + 1].ts)), 3600.0);
+        }
+        const QString day = trendPoints[i].ts.date().toString(Qt::ISODate);
+        trendPowerAh[day] += qMax(0.0, trendPoints[i].currentA * dtSec / 3600.0);
+        trendWaterL[day] += qMax(0.0, trendPoints[i].flowLMin * dtSec / 60.0);
+    }
 
     m_wpTrendPowerSet->remove(0, m_wpTrendPowerSet->count());
     m_wpTrendWaterSet->remove(0, m_wpTrendWaterSet->count());
@@ -1395,9 +1410,8 @@ void MainWindow::refreshWaterPowerAnalysisPage() {
     for (int i = 0; i < trendDays; ++i) {
         const QDate day = trendStart.addDays(i);
         const QString key = day.toString(Qt::ISODate);
-        const auto row = trendMap.value(key, DatabaseManager::DailyResourceUsageEntry{});
-        const double power = row.powerMAh / 1000.0;   // mAh → Ah（数据库存储单位为mAh）
-        const double water = row.waterCL / 100.0;
+        const double power = trendPowerAh.value(key, 0.0);   // Ah（与单日分析 totalPowerMAh 单位一致）
+        const double water = trendWaterL.value(key, 0.0);    // L（与单日分析 totalWaterL 单位一致）
         *m_wpTrendPowerSet << qRound(power * 100.0) / 100.0;
         *m_wpTrendWaterSet << qRound(water * 10.0) / 10.0;
         if (sameMonth) {
