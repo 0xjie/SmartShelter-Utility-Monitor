@@ -1,3 +1,12 @@
+// ============================================================
+// USART1 通信层：STM32 ↔ ESP32 串口通信
+// ============================================================
+// 功能：
+//   1. 中断接收 + 环形缓冲（256字节），不丢数据
+//   2. 上传JSON拼装（避免newlib-nano浮点格式化缺陷）
+//   3. 下行命令解析（三合一兼容：JSON新协议 / JSON数字码 / 传统kkVVV）
+// ============================================================
+
 #include "serial.h"
 #include <stdio.h>
 #include <string.h>
@@ -5,35 +14,47 @@
 #include "misc.h"
 #include "delay.h"
 
-/* RX ring buffer */
+// ============================================================
+// 第一部分：中断接收环形缓冲
+// ============================================================
+// 设计意图：ISR中只做push，主循环中pop，无锁无阻塞
+// 缓冲区256字节足够接收约2条JSON命令（单条最长256字节）
 #define SERIAL_RX_RING_SIZE  256
-static volatile uint8_t  g_rx_ring[SERIAL_RX_RING_SIZE];
-static volatile uint16_t g_rx_head;
-static volatile uint16_t g_rx_tail;
+static volatile uint8_t  g_rx_ring[SERIAL_RX_RING_SIZE];  // 环形缓冲区
+static volatile uint16_t g_rx_head;  // 写指针（ISR中修改）
+static volatile uint16_t g_rx_tail;  // 读指针（主循环中修改）
 
+// 环形缓冲push：ISR中调用，满则丢弃（不阻塞ISR）
 static void rx_ring_push(uint8_t b)
 {
     uint16_t next = (uint16_t)((g_rx_head + 1u) % SERIAL_RX_RING_SIZE);
-    if (next == g_rx_tail) return;
+    if (next == g_rx_tail) return;  // 缓冲区满→丢弃（不阻塞）
     g_rx_ring[g_rx_head] = b;
     g_rx_head = next;
 }
 
+// 环形缓冲pop：主循环中调用，空则返回0
 static uint8_t rx_ring_pop(uint8_t *out)
 {
-    if (g_rx_head == g_rx_tail) return 0;
+    if (g_rx_head == g_rx_tail) return 0;  // 缓冲区空
     *out = g_rx_ring[g_rx_tail];
     g_rx_tail = (uint16_t)((g_rx_tail + 1u) % SERIAL_RX_RING_SIZE);
     return 1;
 }
 
-/* ---- USART1 ISR ---- */
+// ============================================================
+// 第二部分：USART1 中断服务程序
+// ============================================================
+// RXNE中断：收到1字节→push到环形缓冲
+// ORE溢出：读取SR+DR清除标志（防止溢出后中断死锁）
 void USART1_IRQHandler(void)
 {
+    // 接收中断：将数据放入环形缓冲
     if (USART_GetITStatus(SERIAL_USARTx, USART_IT_RXNE) != RESET) {
         uint8_t b = (uint8_t)(USART_ReceiveData(SERIAL_USARTx) & 0xFFu);
         rx_ring_push(b);
     }
+    // 溢出处理：读SR+DR清除溢出标志（必须做，否则后续RXNE不再触发）
     if (USART_GetFlagStatus(SERIAL_USARTx, USART_FLAG_ORE) != RESET) {
         volatile uint32_t sr = SERIAL_USARTx->SR;
         volatile uint32_t dr = SERIAL_USARTx->DR;
@@ -41,6 +62,11 @@ void USART1_IRQHandler(void)
     }
 }
 
+// ============================================================
+// 第三部分：串口初始化
+// ============================================================
+// 参数：USART1, PA9(TX推挽复用), PA10(RX上拉输入), 115200 8N1
+// 中断优先级：Preemption=1, Sub=1
 void Serial_Init(void)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -95,7 +121,12 @@ void Serial_SendString(const char *str)
     }
 }
 
-/* ---- Upload JSON builder (no Chinese, ARMCC v5 safe) ---- */
+// ============================================================
+// 第四部分：上传JSON拼装
+// ============================================================
+// 关键约束：ARMCC v5 + newlib-nano 不支持 %f 浮点格式化
+// 解决方案：浮点数手动拆分为整数+小数部分，用 %d.%02d 拼接
+// 缓冲区768字节，上传JSON约600字节，留有安全余量
 void Serial_SendUploadPacket(const UploadPacket *pkt)
 {
     static char buf[768];
@@ -176,7 +207,11 @@ send_err:
     Serial_SendString("{\"sen\":{\"t\":0},\"lv\":{\"link\":0},\"err\":1}\r\n");
 }
 
-/* ---- Non-blocking line read ---- */
+// ============================================================
+// 第五部分：非阻塞行读取（以 \n 为行分隔符）
+// ============================================================
+// 每次被调用时扫描环形缓冲，遇 \n 返回完整一行
+// 缓冲中无完整行则立即返回0，不阻塞主循环
 uint8_t Serial_ReadLine(char *out_line, uint16_t max_len)
 {
     static char rx_line[SERIAL_RX_LINE_MAX];
@@ -267,7 +302,31 @@ static uint8_t json_extract_int(const char *line, const char *key, int *out_val)
     return 1;
 }
 
-/* ---- Command parser (JSON + legacy compat) ---- */
+// ============================================================
+// 第六部分：三合一命令解析器（JSON新协议 + 数字码兼容 + kkVVV传统格式）
+// ============================================================
+// 此函数是 STM32 下行命令的统一入口，兼容从 ESP32 UART 收到的所有命令格式。
+// 全链路数据流回顾：
+//   Qt点击按钮 → MQTT → 巴法云 → ESP32 → UART2 → 本函数解析 → main.c switch执行
+//
+// 支持的格式：
+//   1. JSON新协议（ESP32转发Qt的阈值命令）:
+//      {"cmd":"th","key":"ta","val":38}
+//   2. JSON新协议（ESP32转发Qt的控制命令）:
+//      {"cmd":"ctrl","act":"fan","val":"on"}
+//   3. JSON模式切换:
+//      {"cmd":"mode","val":"MANUAL"} / {"cmd":"mode","val":"AUTO"}
+//   4. JSON复位:
+//      {"cmd":"reset"} / {"cmd":"reset_th"}
+//   5. JSON数字码兼容（旧Web/ESP32格式）:
+//      {"code":4}  / {"ctl":4}
+//   6. Legacy单字符数字码（最简格式，ESP32直接println数字）:
+//      "0"~"8"
+//      0=蜂关 1=蜂开 2=窗开(90°) 3=窗关(0°) 4=扇开 5=扇关 6=灯开 7=灯关 8=复位
+//   7. Legacy kkVVV阈值格式（旧Qt直接发字符串）:
+//      "tr35" → key="tr", value=35
+//      支持: tr/tc/hw/hd/ph/aq/ci/fl 等
+// 返回值：1=解析成功，0=无法识别
 uint8_t Serial_ParseCommand(const char *line, JsonCommand *cmd)
 {
     const char *p;
@@ -280,22 +339,27 @@ uint8_t Serial_ParseCommand(const char *line, JsonCommand *cmd)
     p = line;
     while (*p == ' ' || *p == '\t') p++;
 
-    /* JSON format */
+    // ---- JSON 格式解析 ----
+    // 先提取 "cmd" 字段判断命令类型
     if (*p == '{') {
         if (json_extract_str(line, "cmd", tmp, sizeof(tmp))) {
+            // cmd="reset": 全局复位，所有执行器恢复自动模式
             if (strcmp(tmp, "reset") == 0) {
                 cmd->type = JSONCMD_RESET;
                 return 1;
             }
+            // cmd="reset_th": 阈值恢复出厂默认值
             if (strcmp(tmp, "reset_th") == 0) {
                 cmd->type = JSONCMD_RESET_TH;
                 return 1;
             }
+            // cmd="mode": 全局手动/自动模式切换
             if (strcmp(tmp, "mode") == 0) {
                 cmd->type = JSONCMD_MODE;
                 json_extract_str(line, "val", cmd->mode, sizeof(cmd->mode));
                 return 1;
             }
+            // cmd="ctrl": 单执行器控制（act=执行器名, val=动作on/off/auto/角度）
             if (strcmp(tmp, "ctrl") == 0) {
                 cmd->type = JSONCMD_CTRL;
                 json_extract_str(line, "act", cmd->actuator, sizeof(cmd->actuator));
@@ -303,24 +367,28 @@ uint8_t Serial_ParseCommand(const char *line, JsonCommand *cmd)
                     memcpy(cmd->action, tmp, sizeof(cmd->action) - 1);
                 } else if (json_extract_int(line, "val", &ival)) {
                     cmd->angle = (uint16_t)ival;
-                    cmd->action[0] = '#';
+                    cmd->action[0] = '#';  // '#' 开头表示角度值
                 }
                 return 1;
             }
+            // cmd="th": 单阈值修改（key=阈值缩写, val=新值）
+            // 这是 ESP32 forwardThresholdToStm32() 发送的格式
             if (strcmp(tmp, "th") == 0) {
                 cmd->type = JSONCMD_TH;
                 json_extract_str(line, "key", cmd->th_key, sizeof(cmd->th_key));
                 if (!json_extract_int(line, "val", &ival)) {
-                    json_extract_int(line, "value", &ival);
+                    json_extract_int(line, "value", &ival);  // 兼容 "value" 字段名
                 }
                 cmd->th_val = (uint16_t)ival;
                 return 1;
             }
         }
-        /* code/ctl compat: {"code":4} */
+        // ---- 数字码兼容：{"code":4} 或 {"ctl":4} ----
+        // 无 cmd 字段时，尝试提取 code/ctl 数字码
         if (json_extract_int(line, "code", &ival) || json_extract_int(line, "ctl", &ival)) {
             if (ival >= 0 && ival <= 8) {
                 cmd->type = JSONCMD_CTRL;
+                // 数字码 → 执行器+动作 转换（与 apply_control_digit 保持一致）
                 switch (ival) {
                     case 0: memcpy(cmd->actuator, "buzzer", 7); memcpy(cmd->action, "off", 4); break;
                     case 1: memcpy(cmd->actuator, "buzzer", 7); memcpy(cmd->action, "on", 3); break;
@@ -335,10 +403,12 @@ uint8_t Serial_ParseCommand(const char *line, JsonCommand *cmd)
                 return 1;
             }
         }
-        return 0;
+        return 0;  // JSON 格式但无法识别 → 返回0
     }
 
-    /* Legacy: single digit 0-8 */
+    // ---- Legacy: 单字符数字码 "0"~"8" ----
+    // 最简协议：ESP32 通过 Serial2.println("1") 直接发送
+    // 且后面无其他非空白字符（确保 "10" 不会被误识别为 "1" 开头的复杂命令）
     if (*p >= '0' && *p <= '8' && (*(p + 1) == '\0' || *(p + 1) == ' ' || *(p + 1) == '\t' || *(p + 1) == '\r')) {
         cmd->type = JSONCMD_CTRL;
         switch (*p) {
@@ -355,7 +425,10 @@ uint8_t Serial_ParseCommand(const char *line, JsonCommand *cmd)
         return 1;
     }
 
-    /* Legacy: kkVVV threshold */
+    // ---- Legacy: kkVVV 阈值格式（如 "tr35" = 温度预警上限设为35）----
+    // 格式：2位字母key + 数字value
+    // 字母部分表示阈值类型，数字部分表示新值
+    // 例如 "tr35" → key="tr", value=35 → TEMP_WARN_H = 35
     if (((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z')) &&
         ((*(p+1) >= 'a' && *(p+1) <= 'z') || (*(p+1) >= 'A' && *(p+1) <= 'Z'))) {
         char key[4] = {0};
@@ -399,6 +472,13 @@ void Serial_SendSensorToESP(uint8_t temp, uint8_t humi, uint32_t pm25_ugm3, uint
     Serial_SendUploadPacket(&pkt);
 }
 
+// ---- 控制码执行函数 ----
+// 将数字控制码转换为各执行器的手动模式标志
+// 与 Qt 端的控制码定义完全一致（mainwindow_pages.cpp:createCodeControlRow）
+// 每个执行器独立维护手动/自动状态：
+//   remote_mode/manual_mode = 1 表示手动接管，= 0 表示自动联动
+//   remote_on/manual_on = 1 表示手动开/关状态
+// 控制码与 ESP32 forwardDigitToStm32() 发送的数字完全对应
 static void apply_control_digit(char ch,
                                 uint8_t *buzzer_remote_mode, uint8_t *buzzer_remote_on,
                                 uint8_t *fan_manual_mode, uint8_t *fan_manual_on,
@@ -406,15 +486,16 @@ static void apply_control_digit(char ch,
                                 uint8_t *led_alarm_manual_mode)
 {
     switch (ch) {
-    case '1': *buzzer_remote_mode = 1; *buzzer_remote_on = 1; break;
-    case '0': *buzzer_remote_mode = 1; *buzzer_remote_on = 0; break;
-    case '2': *servo_manual_mode = 1; *servo_manual_angle = 90; break;
-    case '3': *servo_manual_mode = 1; *servo_manual_angle = 0; break;
-    case '4': *fan_manual_mode = 1; *fan_manual_on = 1; break;
-    case '5': *fan_manual_mode = 1; *fan_manual_on = 0; break;
-    case '6': *led_alarm_manual_mode = 1; break;
-    case '7': *led_alarm_manual_mode = 0; break;
-    case '8': *buzzer_remote_mode = 0; *buzzer_remote_on = 0;
+    case '1': *buzzer_remote_mode = 1; *buzzer_remote_on = 1; break;  // 蜂鸣器手动开
+    case '0': *buzzer_remote_mode = 1; *buzzer_remote_on = 0; break;  // 蜂鸣器手动关
+    case '2': *servo_manual_mode = 1; *servo_manual_angle = 90; break; // 窗户打开90°
+    case '3': *servo_manual_mode = 1; *servo_manual_angle = 0; break;  // 窗户关闭0°
+    case '4': *fan_manual_mode = 1; *fan_manual_on = 1; break;        // 风扇手动开
+    case '5': *fan_manual_mode = 1; *fan_manual_on = 0; break;        // 风扇手动关
+    case '6': *led_alarm_manual_mode = 1; break;                      // LED手动接管
+    case '7': *led_alarm_manual_mode = 0; break;                      // LED恢复自动
+    case '8':                                                          // 全局复位
+              *buzzer_remote_mode = 0; *buzzer_remote_on = 0;
               *fan_manual_mode = 0; *fan_manual_on = 0;
               *servo_manual_mode = 0; *servo_manual_angle = 0;
               *led_alarm_manual_mode = 0; break;

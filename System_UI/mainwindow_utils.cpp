@@ -13,11 +13,31 @@
 #include <QtMath>
 
 
+// ============================================================
+// MQTT Topic 常量 — Qt ↔ 巴法云(bemfa.com:9501) ↔ ESP32
+// ============================================================
+// telemetry: STM32传感器数据上行（ESP32→云端→Qt/Web）
+// command:   Qt/Web下行控制指令（Qt→云端→ESP32→STM32）
+// help:      Web看板紧急求助（Web→云端→Qt桌面端弹窗）
 const char kMqttTelemetryTopic[] = "telemetry";
 const char kMqttCommandTopic[] = "command";
 const char kMqttCommandPublishTopic[] = "command";
 const char kMqttHelpTopic[] = "help";
 
+// ============================================================
+// 下行命令 JSON 构造器（Qt → MQTT → ESP32 → STM32）
+// ============================================================
+// 所有下行命令统一使用三层嵌套格式：
+//   {"type":"command","source":"qt","payload":{...具体命令...}}
+// type:   消息类型（command=下行控制, telemetry=上行数据）
+// source: 发送来源（qt=桌面端, web=Web看板, esp32=ESP32）
+// payload: 具体命令内容，由各业务函数构造
+
+// ---- 通用包装函数：将 payload 包装为带 type/source 的标准信封 ----
+// 使用示例：
+//   QJsonObject payload; payload["kind"] = "control"; payload["code"] = 1;
+//   buildWrappedMqttJson("command", "qt", payload);
+//   → {"type":"command","source":"qt","payload":{"kind":"control","code":1}}
 QString buildWrappedMqttJson(const QString& type, const QString& source, const QJsonObject& payload) {
     QJsonObject root;
     root.insert(QStringLiteral("type"), type);
@@ -26,6 +46,9 @@ QString buildWrappedMqttJson(const QString& type, const QString& source, const Q
     return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));
 }
 
+// ---- 解包函数：从收到的 MQTT 消息中提取 payload ----
+// ESP32 上传的遥测也是 {"type":"telemetry","source":"esp32","payload":{...}} 格式
+// 本函数校验 type 字段是否匹配，匹配则返回内层 payload，否则返回原始 JSON
 QJsonObject unwrapWrappedPayload(const QJsonObject& obj, const QString& expectedType) {
     if (obj.value(QStringLiteral("type")).toString() == expectedType &&
         obj.value(QStringLiteral("payload")).isObject()) {
@@ -34,6 +57,13 @@ QJsonObject unwrapWrappedPayload(const QJsonObject& obj, const QString& expected
     return obj;
 }
 
+// ---- 阈值修改命令 JSON 构造 ----
+// 将多个阈值 key-value 对包装为下行命令，ESP32 收到后逐个转发给 STM32
+// 生成的 JSON 格式：
+//   {"type":"command","source":"qt",
+//    "payload":{"kind":"threshold","values":{"ta":38,"tb":10,...}}}
+// ESP32 解析流程：识别 kind="threshold" → 遍历 values → 逐个调 forwardThresholdToStm32()
+// STM32 接收格式：{"cmd":"th","key":"ta","val":38}\n
 QString buildThresholdMqttJson(const QJsonObject& values) {
     QJsonObject payload;
     payload.insert(QStringLiteral("kind"), QStringLiteral("threshold"));
@@ -41,12 +71,18 @@ QString buildThresholdMqttJson(const QJsonObject& values) {
     return buildWrappedMqttJson(QStringLiteral("command"), QStringLiteral("qt"), payload);
 }
 
+// ---- 单个阈值修改命令（便捷函数，当前未使用）----
 QString buildSingleThresholdMqttJson(const QString& key, int value) {
     QJsonObject values;
     values.insert(key, value);
     return buildThresholdMqttJson(values);
 }
 
+// ---- 恢复默认阈值命令 JSON 构造 ----
+// 生成的 JSON 格式：
+//   {"type":"command","source":"qt","payload":{"kind":"reset_threshold"},"cmd":"reset_th"}
+// ESP32 解析：识别 kind="reset_threshold" → 向 STM32 发送 {"cmd":"reset_th"}\n
+// STM32 解析：识别 cmd="reset_th" → 调用 reset_thresholds_to_default()
 QString buildResetThresholdMqttJson() {
     QJsonObject payload;
     payload.insert(QStringLiteral("kind"), QStringLiteral("reset_threshold"));

@@ -900,11 +900,25 @@ void MainWindow::buildDevicePage() {
 }
 #endif
 
+// ============================================================
+// 设备管理页面（第4页）
+// ============================================================
+// 页面分为三大区域：
+//   1. 修改阈值 — 8个QSpinBox + [恢复默认]/[一键下发]按钮 → MQTT → ESP32 → STM32
+//   2. 远程控制 — 4组开关按钮(警报/风扇/窗户/警报灯) → MQTT → ESP32 → STM32
+//   3. 远程控制日志 — QTableWidget 展示历史下发记录
+//
+// 全链路数据流：
+//   Qt按钮点击 → 构造JSON → MQTT publish("command") → 巴法云 → ESP32订阅回调
+//   → ESP32解析kind字段 → UART2发送 → STM32 USART1中断接收 → 环形缓冲
+//   → Serial_ParseCommand()解析 → 修改阈值变量/控制GPIO → 执行器动作
+// ============================================================
 void MainWindow::buildDevicePage() {
     auto* rootLayout = ui->verticalLayoutWP;
     clearLayout(rootLayout);
     rootLayout->setSpacing(16);
 
+    // ---- 页面标题 ----
     auto* headerCard = createPanelCard(ui->pageWaterPower);
     auto* headerLayout = new QVBoxLayout(headerCard);
     headerLayout->setContentsMargins(24, 18, 24, 14);
@@ -923,27 +937,47 @@ void MainWindow::buildDevicePage() {
     m_remoteDeviceCombo = nullptr;
     m_remoteCommandCombo = nullptr;
 
-    const QString commandTopic = QString::fromLatin1(kMqttCommandPublishTopic);
+    // ============================================================
+    // 下行命令发布器（Lambda — 所有MQTT下行命令的统一出口）
+    // ============================================================
+    // 参数：
+    //   commandName: 日志中显示的命令名称（如"阈值一键下发"、"警报开启"）
+    //   payload:     JSON字符串，由 buildWrappedMqttJson / buildThresholdMqttJson 等构造
+    // 返回值：true=发送成功, false=MQTT未连接
+    // 副作用：无论成功失败都写入远程控制日志；失败时弹出提示对话框
+    const QString commandTopic = QString::fromLatin1(kMqttCommandPublishTopic);  // "command"
     auto publishCommand = [this, commandTopic](const QString& commandName,
                                                const QString& payload) -> bool {
+        // ① 通过 MQTT 发布到巴法云 topic="command"，QoS=1（至少一次送达）
         const bool ok = m_mqtt.publishText(commandTopic, payload);
+        // ② 将本次操作记入远程控制日志表格
         appendRemoteControlLog(commandName,
                                ok ? QStringLiteral("已发送到 %1").arg(commandTopic)
                                   : QStringLiteral("发送失败：MQTT 未连接"));
+        // ③ MQTT 未连接时弹出提示
         if (!ok) {
             customMessage(this,
                           QStringLiteral("发送失败"),
-                          QStringLiteral("MQTT 当前未连接，命令“%1”未发送。").arg(commandName),
+                          QStringLiteral("MQTT 当前未连接，命令 %1 未发送。").arg(commandName),
                           true);
         }
         return ok;
     };
+    // ============================================================
+    // 区域一：修改阈值
+    // ============================================================
+    // 阈值列表：key=STM32协议中的缩写, label=UI中文名, unit=单位, default=出厂默认
+    // 全链路：QSpinBox值 → buildThresholdMqttJson() → MQTT command topic
+    //        → ESP32 handleCommandPayload() 识别 kind="threshold"
+    //        → forwardThresholdToStm32() 发 UART JSON
+    //        → STM32 Serial_ParseCommand() 解析 → 修改阈值全局变量
+    // 告警阈值(ta/tb/ha/hb/pa/aa/ca/fa)会自动推导对应的预警阈值
     {
         struct ThresholdDefinition {
-            QString key;
-            QString label;
-            QString unit;
-            int defaultValue;
+            QString key;         // STM32协议中的阈值key（2字母缩写）
+            QString label;       // UI显示的中文名
+            QString unit;        // 单位
+            int defaultValue;    // 出厂默认值
         };
 
         const QVector<ThresholdDefinition> thresholdDefs = {
@@ -1043,6 +1077,10 @@ void MainWindow::buildDevicePage() {
         thresholdButtonRow->addStretch();
         thresholdLayout->addLayout(thresholdButtonRow);
 
+        // ---- [恢复默认] 按钮 ----
+        // 点击后：①所有SpinBox恢复出厂默认值 ②通过MQTT发送reset_threshold命令
+        // ESP32收到 → 向STM32发送 {"cmd":"reset_th"}\n
+        // STM32收到 → reset_thresholds_to_default() → 所有阈值恢复出厂值
         connect(resetButton, &QPushButton::clicked, this, [this, publishCommand, thresholdBoxes, thresholdDefs]() {
             for (int i = 0; i < thresholdBoxes.size(); ++i) {
                 thresholdBoxes[i]->setValue(thresholdDefs[i].defaultValue);
@@ -1055,6 +1093,18 @@ void MainWindow::buildDevicePage() {
             }
         });
 
+        // ---- [一键下发] 按钮 ----
+        // 全链路流程：
+        // ① 弹出确认对话框 → 用户确认
+        // ② 读取8个QSpinBox当前值 → 组装 QJsonObject values
+        // ③ buildThresholdMqttJson(values) → 包装为 MQTT JSON：
+        //    {"type":"command","source":"qt","payload":{"kind":"threshold","values":{"ta":38,...}}}
+        // ④ m_mqtt.publishText("command", json) → QoS 1 → 巴法云
+        // ⑤ 成功后：保存到本地 m_thresholdValues + QSettings 持久化
+        // ⑥ ESP32 收到 → handleCommandPayload() → 遍历 values
+        //    → forwardThresholdToStm32("ta", 38) → Serial2.printf(...)
+        //    → STM32 USART1 RXNE中断 → 环形缓冲 → Serial_ParseCommand()
+        //    → JSONCMD_TH → 修改 TEMP_ALARM_H 等全局变量 → 下次采样生效
         connect(sendButton, &QPushButton::clicked, this, [this, publishCommand, thresholdBoxes, thresholdDefs]() {
             if (!customConfirm(this,
                                QStringLiteral("确认下发"),
@@ -1069,7 +1119,7 @@ void MainWindow::buildDevicePage() {
 
             if (publishCommand(QStringLiteral("阈值一键下发"),
                                buildThresholdMqttJson(values))) {
-                // 保存到本地持久化
+                // 下发成功后同步到本地持久化（QSettings），下次启动时自动加载
                 for (int i = 0; i < thresholdBoxes.size(); ++i) {
                     m_thresholdValues[thresholdDefs[i].key] = thresholdBoxes[i]->value();
                 }
@@ -1083,6 +1133,19 @@ void MainWindow::buildDevicePage() {
         rootLayout->addWidget(thresholdCard);
     }
 
+    // ============================================================
+    // 区域二：远程控制
+    // ============================================================
+    // 4组开关按钮，每组对应一个执行器（警报/风扇/窗户/警报灯）
+    // 全链路：按钮点击 → publishDeviceCode(code) → MQTT command topic
+    //        → ESP32 handleCommandPayload() 识别 kind="control"
+    //        → forwardDigitToStm32(code) → Serial2.println("1")
+    //        → STM32 Serial_ParseCommand() 解析单字符 → JSONCMD_CTRL
+    //        → exec_control_cmd() → 设置手动模式标志 → GPIO/PWM立即动作
+    //
+    // 控制码映射（与 STM32 端 apply_control_digit 保持一致）：
+    //   0=蜂鸣器关  1=蜂鸣器开  2=窗户开(90°)  3=窗户关(0°)
+    //   4=风扇开    5=风扇关    6=警报灯开      7=警报灯关(恢复自动)
     {
         auto* controlCard = createPanelCard(ui->pageWaterPower);
         auto* controlLayout = new QVBoxLayout(controlCard);
@@ -1102,6 +1165,10 @@ void MainWindow::buildDevicePage() {
             "padding:5px 16px;font-weight:800;font-size:13px;}"
             "QPushButton:hover{background:#0c4a6e;}";
 
+        // ---- 控制码发布器 ----
+        // 将控制码包装为 MQTT JSON：
+        //   {"type":"command","source":"qt","payload":{"kind":"control","code":1,"name":"警报开启"}}
+        // ESP32 解析：识别 kind="control" → 提取 code 字段 → forwardDigitToStm32(code)
         auto publishDeviceCode = [publishCommand](int code, const QString& actionName) -> bool {
             QJsonObject payload;
             payload.insert(QStringLiteral("kind"), QStringLiteral("control"));
@@ -1113,6 +1180,11 @@ void MainWindow::buildDevicePage() {
                                                        payload));
         };
 
+        // ---- 控制行工厂函数 ----
+        // 为每组执行器创建一行（名称 + [开启] + [关闭]）
+        // 点击[开启] → MQTT发送 onCode(如1=蜂鸣开) → 按钮高亮激活态
+        // 点击[关闭] → MQTT发送 offCode(如0=蜂鸣关) → 按钮恢复普通态
+        // 注：高亮只是 UI 反馈，不代表 STM32 实际执行成功（系统为开环控制）
         auto createCodeControlRow = [this, controlCard, controlLayout, publishDeviceCode, ctrlBtnNormal, ctrlOnActive](
                                         const QString& title,
                                         const QString& onText,
@@ -1155,6 +1227,9 @@ void MainWindow::buildDevicePage() {
             controlLayout->addLayout(row);
         };
 
+        // ---- 4组执行器控制行 ----
+        // 控制码由 STM32 端 apply_control_digit() 统一解析，Qt/ESP32 只负责透传
+        // 数字码0~7含义：0=蜂关 1=蜂开 2=窗开 3=窗关 4=扇开 5=扇关 6=灯开 7=灯关
         createCodeControlRow(QStringLiteral("警报"),
                              QStringLiteral("开启"),
                              QStringLiteral("关闭"),
@@ -1187,6 +1262,13 @@ void MainWindow::buildDevicePage() {
         rootLayout->addWidget(controlCard);
     }
 
+    // ============================================================
+    // 区域三：远程控制日志
+    // ============================================================
+    // QTableWidget 展示每次 MQTT 下行命令的记录
+    // 列：时间(固定170px) | 控制命令(自适应拉伸) | 执行结果(固定220px)
+    // 数据来源：publishCommand lambda 中每次调用 appendRemoteControlLog()
+    //          → 写入 SQLite remote_exec_logs 表 → loadRemoteExecLogTable() 加载显示
     {
         auto* logCard = createPanelCard(ui->pageWaterPower);
         auto* logLayout = new QVBoxLayout(logCard);
