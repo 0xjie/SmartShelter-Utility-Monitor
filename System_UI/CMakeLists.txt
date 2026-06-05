@@ -17,6 +17,9 @@ set(PROJECT_SOURCES
         mainwindow.cpp
         mainwindow.h
         mainwindow.ui
+        mainwindow_utils.cpp
+        mainwindow_utils.h
+        mainwindow_pages.cpp
         resources.qrc
         authservice.cpp
         authservice.h
@@ -24,8 +27,6 @@ set(PROJECT_SOURCES
         securestore.h
         logindialog.cpp
         logindialog.h
-        registerdialog.cpp
-        registerdialog.h
         databasemanager.cpp
         databasemanager.h
         sensordata.h

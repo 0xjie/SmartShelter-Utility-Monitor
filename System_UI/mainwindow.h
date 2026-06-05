@@ -278,7 +278,7 @@ private:
     QComboBox* m_remoteDeviceCombo;
     QComboBox* m_remoteCommandCombo;
     QPlainTextEdit* m_logViewer;
-    QPlainTextEdit* m_remoteLogMarqueeView = nullptr;
+    QTableWidget* m_remoteLogTable = nullptr;
 
     struct HistoryPoint {
         QString timeLabel;
@@ -305,6 +305,11 @@ private:
     QDateTime m_loginTime;
     double m_batteryPct = 100.0;
     double m_waterPct = 100.0;
+
+    // 阈值持久化：key(ta/tb/ha/...) → value
+    QMap<QString, int> m_thresholdValues;
+    void saveThresholdsToSettings();
+    void loadThresholdsFromSettings();
 };
 
 #endif  // MAINWINDOW_H

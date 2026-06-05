@@ -30,7 +30,6 @@ public:
 private slots:
     void onLogin();
     void onTogglePassword();
-    void openRegister();
 
 private:
     void resizeEvent(QResizeEvent* event) override;
@@ -54,7 +53,6 @@ private:
     QLabel* m_globalErr = nullptr;
 
     QPushButton* m_loginBtn = nullptr;
-    QPushButton* m_registerBtn = nullptr;
     QPushButton* m_closeBtn = nullptr;
 
     // 登录成功后保存下来，供外部读取

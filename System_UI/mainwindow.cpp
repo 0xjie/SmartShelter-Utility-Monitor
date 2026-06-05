@@ -491,7 +491,7 @@ void MainWindow::updateTitleBarButtons() {
 }
 
 void MainWindow::initMqtt() {
-    const QString key = QStringLiteral("6525cbc01d2d408eb1b28ca77a134ebc");
+    const QString key = QStringLiteral("YOUR_BEMFA_CLIENT_ID");
     const QString telemetryTopic = QString::fromLatin1(kMqttTelemetryTopic);
     const QString commandTopic = QString::fromLatin1(kMqttCommandTopic);
     const QString helpTopic = QString::fromLatin1(kMqttHelpTopic);

@@ -107,15 +107,14 @@ static void reset_thresholds_to_default(void) {
 #define WARN_EXIT_CNT    3       // 退出预警需连续3次
 #define ALARM_EXIT_CNT   5       // 退出告警需连续5次
 
-// ---- 水电剩余量默认容量 ----
-// 演示用小容量（方便吹气/开关负载触发变化），真实场景通过 bc/wc 命令修改
+
 static uint16_t BATTERY_CAPACITY_mAh = 10000;  // 电池总容量 10000mAh
 static uint16_t TANK_CAPACITY_L      = 500;    // 水箱总容量 500L
 
 // ---- 传感器缩放系数 ----
 // DEMO阶段放大读数模拟真实场景；真实部署时改为1
-#define CUR_SCALE  10    // 电流×10倍：400mA→上报4A（模拟大功率负载）
-#define FLW_SCALE  1     // 水流真实值（不做缩放）
+#define CUR_SCALE  10    
+#define FLW_SCALE  1     
 
 // ---- 联动级别枚举 ----
 #define LINK_NORMAL  0   // 正常
@@ -541,16 +540,16 @@ int main(void)
             flow_lpm = Flow_Sensor_Get_FlowRate();         // 脉冲差×60/450，含EMA低通滤波(α=0.3)
 
             // ACS712电流：原始值含工频纹波，取值后经DC blocker处理
-            float cur_f = ACS712_GetCurrent();             // 返回A，600次采样取平均
+            float cur_f = ACS712_GetCurrent();             
             current_ma = (int32_t)(cur_f * 1000.0f);       // A→mA
-            if (current_ma >= 5000) current_ma = 0;        // 异常值剔除(5A以上视为无效)
+            if (current_ma >= 5000) current_ma = 0;        
 
             // --- B2: 传感器缩放（DEMO放大模拟真实场景，真实部署时CUR_SCALE=1） ---
-            rpt_ma = current_ma * CUR_SCALE;   // 上报电流 = 原始×缩放系数
+            rpt_ma = current_ma * CUR_SCALE;   
             rpt_f  = flow_lpm   * (float)FLW_SCALE;  // 上报流量
 
             // --- B3: 水电剩余量积分计算 ---
-            // 电量：库仑计数法，每秒累加 I(mA)/3600 → 消耗mAh
+
             battery_used_mAh += (float)rpt_ma / 3600.0f;
             if (battery_used_mAh >= BATTERY_CAPACITY_mAh)
                 battery_used_mAh = (float)BATTERY_CAPACITY_mAh;  // 下限钳位(不出现负%)
@@ -972,9 +971,7 @@ int main(void)
         }
 
         // ============================================================
-        // 区块C：LED 三色状态指示（每个Tick更新，手动优先）
-        // ============================================================
-        // 正常=绿灯 / 预警=黄灯 / 告警=红灯 / 手动模式=三色全亮
+
         if (led_manual_mode) {
             Apply_RGB_Leds(1, 1, 1);  // 手动模式：三色全亮表示人工接管
         } else {

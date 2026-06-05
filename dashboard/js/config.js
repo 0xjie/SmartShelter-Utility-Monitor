@@ -9,16 +9,16 @@ window.DASHBOARD_CONFIG = {
   mqttUrl: 'wss://bemfa.com:9504/wss',
 
   /** 私钥（巴法云仅用 key 鉴权，无需特定 clientId） */
-  clientId: '6525cbc01d2d408eb1b28ca77a134ebc',
+  clientId: 'YOUR_BEMFA_CLIENT_ID',
 
   username: '',
   password: '',
 
   /** 订阅主题（ESP32 上报的 topic） */
-  topic: 'test001up',
+  topic: 'telemetry',
 
   /** Web↔Qt 交互主题（一键求助等） */
-  helpTopic: 'WebQT1',
+  helpTopic: 'help',
 
   /** 本地缓存有效分钟（断网时展示旧数据） */
   cacheMinutes: 30,

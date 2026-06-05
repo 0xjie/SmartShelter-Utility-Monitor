@@ -50,6 +50,40 @@ build/
 
 # === Claude ===
 .claude/
+CLAUDE.md
+System_UI/CLAUDE.md
+
+# === Thesis & Documents ===
+*.doc
+*.docx
+*.pdf
+thesis_text.txt
+参考文献*.md
+当前参考文献*.md
+第*-*.md
+第*章-*.md
+系统概述*.md
+系统技术*.md
+系统说明*.md
+系统综述*.md
+备份论文*.docx
+ESP32固件文档.md
+Qt桌面端文档.md
+STM32固件文档.md
+Web看板文档.md
+
+# === Temp scripts ===
+insert_*.py
+rewrite_*.py
+preview_*.py
+generate_*.py
+build_*.js
+
+# === Paper artifacts ===
+paper-context/
+paper-output/
+thesis-ai-standard/
+*.tmp
 
 # === Dependencies / Libs (keep only source) ===
 node_modules/

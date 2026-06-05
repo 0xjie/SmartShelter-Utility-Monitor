@@ -355,16 +355,21 @@
       var activeCount = activeEvts.length;
 
       var html = '';
-      // 活跃事件
+      // 活跃事件 — 高亮放大
       activeEvts.forEach(function(e) {
-        html += '<div class="alarm-item ' + cls + '">' +
-          '<span class="alarm-time">' + fmtTime(e.start) + ' <span style="color:#f87171;font-weight:700">● 进行中</span></span>' +
+        var dotColor = cls === 'alarm-item--danger' ? '#f87171' : '#fbbf24';
+        html += '<div class="alarm-item ' + cls + ' alarm-item--active">' +
+          '<span class="alarm-time">' + fmtTime(e.start) + ' <span class="alarm-active-dot" style="color:' + dotColor + ';font-weight:700">● 进行中</span></span>' +
           '<span class="alarm-msg">' + e.msg + '</span>' +
           '</div>';
       });
-      // 已结束的事件（用更淡的样式）
+      // 活跃/历史 分隔线
+      if (activeEvts.length > 0 && endedEvts.length > 0) {
+        html += '<div class="alarm-divider">历史记录</div>';
+      }
+      // 已结束的事件 — 深度淡化
       endedEvts.forEach(function(e) {
-        html += '<div class="alarm-item ' + cls + '" style="opacity:0.55">' +
+        html += '<div class="alarm-item ' + cls + ' alarm-item--ended">' +
           '<span class="alarm-time">' + fmtTime(e.start) + ' ~ ' + fmtTime(e.end) + '</span>' +
           '<span class="alarm-msg">' + e.msg + '</span>' +
           '</div>';
@@ -373,7 +378,7 @@
       listEl.innerHTML = html;
 
       if (activeCount > 0) {
-        statusEl.textContent = '✅ ' + activeCount + ' 条' + emptyText.replace('当前无', ''); statusEl.style.color = statusColor;
+        statusEl.textContent = '🔔 ' + activeCount + ' 条' + emptyText.replace('当前无', ''); statusEl.style.color = statusColor;
       } else {
         statusEl.textContent = '✅ ' + emptyText; statusEl.style.color = '#10B981';
       }

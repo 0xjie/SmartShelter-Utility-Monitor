@@ -82,9 +82,16 @@ void Mqtt::subscribeTopic(const QString &topic)
     }
 }
 
-void Mqtt::publishText(const QString &topic, const QString &text)
+bool Mqtt::publishText(const QString &topic, const QString &text)
 {
-    if (m_client->state() == QMqttClient::Connected) {
-        m_client->publish(topic, text.toUtf8());
+    if (m_client->state() != QMqttClient::Connected) {
+        return false;
     }
+
+    const qint32 packetId = m_client->publish(topic, text.toUtf8(), 1, false);
+    if (packetId == -1) {
+        return false;
+    }
+
+    return true;
 }

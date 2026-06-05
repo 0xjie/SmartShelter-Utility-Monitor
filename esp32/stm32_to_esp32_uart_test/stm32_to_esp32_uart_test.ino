@@ -7,13 +7,13 @@
 #include <string.h>
 
 // ====== WiFi ======
-const char* WIFI_SSID = "vivo";
-const char* WIFI_PASS = "12345678";
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 
 // ====== MQTT ======
 const char* MQTT_SERVER = "bemfa.com";
 const int MQTT_PORT = 9501;
-const char* MQTT_CLIENT_ID = "6525cbc01d2d408eb1b28ca77a134ebc";
+const char* MQTT_CLIENT_ID = "YOUR_BEMFA_CLIENT_ID";
 const char* MQTT_TELEMETRY_TOPIC = "telemetry";
 const char* MQTT_COMMAND_TOPIC = "command";
 
@@ -22,6 +22,8 @@ PubSubClient client(espClient);
 
 String serialBuffer = "";
 const size_t OFFLINE_QUEUE_CAPACITY = 240;
+// 离线数据先入内存队列，并同步写入 LittleFS。
+// 网络恢复后按队列顺序补发。
 const char* OFFLINE_QUEUE_FILE = "/offline_queue.jsonl";
 const char* OFFLINE_QUEUE_TMP_FILE = "/offline_queue.tmp";
 String offlineQueue[OFFLINE_QUEUE_CAPACITY];
@@ -74,6 +76,7 @@ static bool enqueueTelemetry(const String& jsonLine, bool persist = true) {
     return false;
   }
 
+  // 队列满时丢弃最旧数据，优先保留最新数据。
   if (offlineQueueCount >= OFFLINE_QUEUE_CAPACITY) {
     offlineQueueHead = (offlineQueueHead + 1) % OFFLINE_QUEUE_CAPACITY;
     offlineQueueCount--;
@@ -145,6 +148,7 @@ static bool persistOfflineQueue() {
     return false;
   }
 
+  // 先写 tmp 再替换正式文件，降低掉电损坏风险。
   LittleFS.remove(OFFLINE_QUEUE_TMP_FILE);
 
   if (offlineQueueCount == 0) {
@@ -201,6 +205,7 @@ static void loadOfflineQueueFromDisk() {
       continue;
     }
 
+    // 恢复时仍走统一入队逻辑，保持队列状态一致。
     if (offlineQueueCount >= OFFLINE_QUEUE_CAPACITY) {
       droppedOverflow++;
     }
@@ -228,6 +233,7 @@ static void setupOfflineStorage() {
     return;
   }
 
+  // 若上次停在 tmp 阶段，这里优先尝试恢复。
   if (!LittleFS.exists(OFFLINE_QUEUE_FILE) && LittleFS.exists(OFFLINE_QUEUE_TMP_FILE)) {
     LittleFS.rename(OFFLINE_QUEUE_TMP_FILE, OFFLINE_QUEUE_FILE);
   }
@@ -245,6 +251,7 @@ static bool publishTelemetryFrame(const String& stm32JsonLine, bool fromQueue = 
   rootDoc["type"] = "telemetry";
   rootDoc["source"] = "esp32";
 
+  // STM32 原始 JSON 作为 payload 上传，便于上位机统一解析。
   DeserializationError payloadErr = deserializeJson(payloadDoc, stm32JsonLine);
   if (payloadErr) {
     Serial.print("Telemetry wrap failed: ");
@@ -653,6 +660,8 @@ void loop() {
           JsonObjectConst lv = doc["lv"];
           const bool hasBacklog = offlineQueueCount > 0;
           if (!sen.isNull() && !res.isNull() && !lv.isNull()) {
+            // 只有没有历史积压时才实时直传。
+            // 只要已有积压，新帧也继续入队，保证顺序。
             if (!hasBacklog && mqttReadyForUpload() && publishTelemetryFrame(serialBuffer, false)) {
               Serial.println("[SEND=] direct realtime frame");
             } else {
@@ -695,6 +704,8 @@ void loop() {
       }
       String pendingJson;
       if (peekTelemetry(pendingJson)) {
+        // 先看队头，发布成功后再出队。
+        // 失败时保留原帧，等待下次重试。
         if (!isValidTelemetryJson(pendingJson)) {
           Serial.println("Drop invalid queued frame");
           dequeueTelemetry(pendingJson);

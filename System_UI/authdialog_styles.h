@@ -5,16 +5,15 @@
 // 登录 / 注册卡片圆角（与 C++ 中背景铺满矩形窗口、仅卡片圆角描边的设计一致）
 inline constexpr int kAuthCardCornerRadius = 20;
 
-// 登录 / 注册对话框共用样式（在 LoginDialog / RegisterDialog 上 setStyleSheet）。
-// 说明：Qt Style Sheets 不支持 CSS 的 transform: scale() 与 transition；悬停“放大”用
+// 登录对话框样式（在 LoginDialog 上 setStyleSheet）。
+// 说明：Qt Style Sheets 不支持 CSS 的 transform: scale() 与 transition；悬停”放大”用
 // padding / min-height / 边框粗细与颜色变化近似；过渡感依赖 Qt 原生重绘（无真正动画）。
 inline QString authDialogsStyleSheet()
 {
     const QString rpx = QString::number(kAuthCardCornerRadius);
     QString sheet = QString::fromUtf8(R"(
 /* ========= 外壳：无边框整窗由代码铺满背景图；不设整窗圆角，四角由位图填充（非透明抠角） ========= */
-QDialog#loginDialog,
-QDialog#registerDialog {
+QDialog#loginDialog {
     background-color: #0B1B46;
     color: #FFFFFF;
     font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
@@ -24,8 +23,7 @@ QDialog#registerDialog {
 }
 
 /* ========= 内容区：实底 + 双层描边感，背景铺满至圆角内侧（含四角） ========= */
-QFrame#loginCard,
-QFrame#registerCard {
+QFrame#loginCard {
     background-color: transparent;
     border: none;
     border-radius: 0px;
@@ -43,7 +41,6 @@ QLabel#titleLabel {
 
 /* 副标题 / 次要说明 */
 QLabel#loginSubTitle,
-QLabel#registerSubTitle,
 QLabel#secondaryLabel {
     color: #C7DCFF;
     font-size: 13px;
@@ -57,8 +54,7 @@ QLabel#formFieldLabel {
 }
 
 /* 输入框：半透明白底、蓝边、白字 —— 占位符颜色请在代码里用 QPalette::PlaceholderText */
-QDialog#loginDialog QLineEdit,
-QDialog#registerDialog QLineEdit {
+QDialog#loginDialog QLineEdit {
     min-height: 44px;
     max-height: 48px;
     border-radius: 14px;
@@ -71,8 +67,7 @@ QDialog#registerDialog QLineEdit {
     font-size: 14px;
 }
 
-QDialog#loginDialog QLineEdit:hover,
-QDialog#registerDialog QLineEdit:hover {
+QDialog#loginDialog QLineEdit:hover {
     /* 近似 scale(1.03)：略增内边距 + 更亮边框 */
     padding: 0 13px;
     min-height: 46px;
@@ -81,8 +76,7 @@ QDialog#registerDialog QLineEdit:hover {
     background-color: rgba(255, 255, 255, 0.16);
 }
 
-QDialog#loginDialog QLineEdit:focus,
-QDialog#registerDialog QLineEdit:focus {
+QDialog#loginDialog QLineEdit:focus {
     border: 2px solid #93C5FD;
     background-color: rgba(255, 255, 255, 0.18);
 }
@@ -148,42 +142,6 @@ QPushButton#secondaryButton:disabled {
     background-color: rgba(15, 23, 42, 0.25);
 }
 
-/* 注册页「发送验证码」：高度与同行 QLineEdit（44~50px 样式）对齐，固定 50px */
-QDialog#registerDialog QPushButton#registerSendCodeButton {
-    min-height: 50px;
-    max-height: 50px;
-    min-width: 120px;
-    max-width: 120px;
-    border-radius: 14px;
-    border: 1px solid rgba(147, 197, 253, 0.75);
-    background-color: rgba(255, 255, 255, 0.14);
-    color: #FFFFFF;
-    font-size: 14px;
-    font-weight: 600;
-    padding: 0px 10px;
-}
-
-QDialog#registerDialog QPushButton#registerSendCodeButton:hover {
-    padding: 0px 10px;
-    min-height: 50px;
-    max-height: 50px;
-    background-color: rgba(255, 255, 255, 0.22);
-    border: 1px solid #BFDBFE;
-}
-
-QDialog#registerDialog QPushButton#registerSendCodeButton:pressed {
-    padding: 0px 10px;
-    min-height: 50px;
-    max-height: 50px;
-    background-color: rgba(255, 255, 255, 0.10);
-}
-
-QDialog#registerDialog QPushButton#registerSendCodeButton:disabled {
-    color: #94A3B8;
-    border: 1px solid rgba(148, 163, 184, 0.45);
-    background-color: rgba(15, 23, 42, 0.25);
-}
-
 /* 文字链按钮 */
 QPushButton#linkButton {
     min-height: 36px;
@@ -209,15 +167,13 @@ QPushButton#linkButton:pressed {
 }
 
 /* 复选框 */
-QDialog#loginDialog QCheckBox,
-QDialog#registerDialog QCheckBox {
+QDialog#loginDialog QCheckBox {
     spacing: 8px;
     color: #E0E7FF;
     font-size: 13px;
 }
 
-QDialog#loginDialog QCheckBox::indicator,
-QDialog#registerDialog QCheckBox::indicator {
+QDialog#loginDialog QCheckBox::indicator {
     width: 18px;
     height: 18px;
     border-radius: 6px;
@@ -225,14 +181,12 @@ QDialog#registerDialog QCheckBox::indicator {
     background-color: rgba(255, 255, 255, 0.12);
 }
 
-QDialog#loginDialog QCheckBox::indicator:hover,
-QDialog#registerDialog QCheckBox::indicator:hover {
+QDialog#loginDialog QCheckBox::indicator:hover {
     border: 1px solid #BFDBFE;
     background-color: rgba(255, 255, 255, 0.20);
 }
 
-QDialog#loginDialog QCheckBox::indicator:checked,
-QDialog#registerDialog QCheckBox::indicator:checked {
+QDialog#loginDialog QCheckBox::indicator:checked {
     background-color: #2563EB;
     border: 1px solid #93C5FD;
 }
@@ -243,21 +197,6 @@ QLabel#errorLabel {
     font-size: 12px;
 }
 
-/* 密码强度条 */
-QDialog#registerDialog QProgressBar {
-    min-height: 8px;
-    max-height: 8px;
-    border: none;
-    border-radius: 4px;
-    background-color: rgba(15, 23, 42, 0.35);
-    text-align: center;
-}
-
-QDialog#registerDialog QProgressBar::chunk {
-    border-radius: 4px;
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #38BDF8, stop:1 #2563EB);
-}
 )");
     sheet.replace(QStringLiteral("__AUTH_R__"), rpx);
     return sheet;

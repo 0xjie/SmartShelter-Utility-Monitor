@@ -5,8 +5,7 @@ QDialog {
     font-size: 14px;
 }
 
-QDialog#loginDialog,
-QDialog#registerDialog {
+QDialog#loginDialog {
     background: transparent;
 }
 

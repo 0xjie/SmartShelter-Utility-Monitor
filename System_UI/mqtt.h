@@ -18,7 +18,7 @@ public:
     bool isConnected() const;
     void connectWithKey(const QString &host, quint16 port, const QString &key);
     void subscribeTopic(const QString &topic);
-    void publishText(const QString &topic, const QString &text);
+    bool publishText(const QString &topic, const QString &text);
 
 signals:
     void textMessageReceived(const QString &topic, const QString &payload);

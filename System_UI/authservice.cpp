@@ -68,22 +68,21 @@ bool AuthService::ensureUserSchema(QString* err) {
             "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
             "  username TEXT NOT NULL UNIQUE,"
             "  password TEXT NOT NULL,"
-            "  role TEXT NOT NULL DEFAULT 'user',"
-            "  created_at TEXT NOT NULL"
+            "  role TEXT NOT NULL DEFAULT 'admin'"
             ");")) {
         if (err) *err = q.lastError().text();
         return false;
     }
 
     if (!q.exec(
-            "INSERT OR IGNORE INTO users(username,password,role,created_at) "
-            "VALUES('admin','Admin@123','admin',datetime('now'));")) {
+            "INSERT OR IGNORE INTO users(username,password,role) "
+            "VALUES('admin','Admin@123','admin');")) {
         if (err) *err = q.lastError().text();
         return false;
     }
     if (!q.exec(
-            "INSERT OR IGNORE INTO users(username,password,role,created_at) "
-            "VALUES('test','Test@123','user',datetime('now'));")) {
+            "INSERT OR IGNORE INTO users(username,password,role) "
+            "VALUES('test','Test@123','admin');")) {
         if (err) *err = q.lastError().text();
         return false;
     }
@@ -185,12 +184,11 @@ bool AuthService::registerUser(const QString& username, const QString& password,
 
     QSqlQuery q(m_db);
     q.prepare(
-        "INSERT INTO users(username,password,role,created_at) "
-        "VALUES(?,?,?,?);");
+        "INSERT INTO users(username,password,role) "
+        "VALUES(?,?,?);");
     q.addBindValue(username.trimmed());
     q.addBindValue(password);
-    q.addBindValue(QStringLiteral("user"));
-    q.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODateWithMs));
+    q.addBindValue(QStringLiteral("admin"));
     if (!q.exec()) {
         errMsg = q.lastError().text();
         return false;
